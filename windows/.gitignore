@@ -1,0 +1,9 @@
+inputs/
+firmware/
+artifacts/
+upgrades/
+validation-*/
+*.bin
+*.partial
+*.log
+__pycache__/
