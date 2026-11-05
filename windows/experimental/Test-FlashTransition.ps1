@@ -292,6 +292,26 @@ public static class FlashTransitionOfflineTests
             EqualImage(fake.Bytes, target, "Execution used mutable supplied plan");
             Check(state.ResetAllowed, "Snapshot execution state");
         });
+        Test("no-op final-image corruption prohibits reset", delegate {
+            byte[] source = Source(); FlashPlan plan = Make(source, source);
+            FakeFlash fake = new FakeFlash(source); fake.CorruptUntouchedTailOnTargetVerify = true;
+            ExecutionState state = new ExecutionState();
+            FlashTransitionException error = Fails(fake, plan, plan.PlanSha256, state, null);
+            Check(state.SourceVerified && fake.FullReads == 2, "No-op did not reach final image verification");
+            Check(fake.Writes.Count == 0 && fake.DisableCalls == 0 && !state.MutationStarted, "No-op failure wrote flash");
+            Check(!state.ResetAllowed && !state.TargetVerified && !state.Completed, "No-op final-image failure allowed reset");
+            Check(!state.RollbackAttempted && error.RollbackStatus == RollbackStatus.NotRequired, "No-op attempted rollback");
+        });
+        Test("no-op final-status failure prohibits reset", delegate {
+            byte[] source = Source(); FlashPlan plan = Make(source, source);
+            FakeFlash fake = new FakeFlash(source); fake.FailStatusCall = 3;
+            ExecutionState state = new ExecutionState();
+            FlashTransitionException error = Fails(fake, plan, plan.PlanSha256, state, null);
+            Check(state.SourceVerified && fake.FullReads == 2 && fake.StatusReads == 3, "No-op did not reach final status verification");
+            Check(fake.Writes.Count == 0 && fake.DisableCalls == 0 && !state.MutationStarted, "No-op status failure wrote flash");
+            Check(!state.ResetAllowed && !state.TargetVerified && !state.Completed, "No-op final-status failure allowed reset");
+            Check(!state.RollbackAttempted && error.RollbackStatus == RollbackStatus.NotRequired, "No-op attempted rollback");
+        });
         Test("identical images perform no writes and summary has no image arrays", delegate {
             byte[] source = Source(); FlashPlan plan = Make(source, source);
             FakeFlash fake = new FakeFlash(source); ExecutionState state = new ExecutionState();

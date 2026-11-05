@@ -69,7 +69,7 @@ The simulator needs no firmware files:
 pwsh -NoProfile -File .\experimental\Test-FlashTransition.ps1
 ```
 
-It has 19 cases covering forward/reverse transitions, longer-candidate tail restoration, preflight failures, changed plans, post-erase errors, sector/full verification, status failures, logging errors, rollback failure and reset inhibition. It performs no monitor I/O.
+It has 21 cases covering forward/reverse transitions, longer-candidate tail restoration, preflight failures, changed plans, post-erase errors, sector/full verification, status failures, logging errors, rollback failure and reset inhibition. Two repository-only regression cases cover final image corruption and final status failure when source and target are identical. It performs no monitor I/O.
 
 After supplying the local inputs and generating the candidate, these additional suites are available:
 
@@ -85,6 +85,8 @@ The parser suite expects three known firmware fixtures and checks 19 rejection c
 `Forward` and `Rollback` are explicit laboratory modes, but the repository policy rejects them before NVIDIA construction. The retained adapter expects a particular `EF4015` flash/status/SFDP profile; it is not a general programmer.
 
 Before mutation, the engine checks the complete 2 MiB source and unchanged status. It verifies each changed sector and the full target. On an in-process failure it attempts every touched sector using the exact full source and 32-byte programming pages, then verifies the complete source and status. Reset permission starts false and is withheld whenever image integrity cannot be established. Logging failures cannot interrupt restoration.
+
+The repository engine also revokes reset permission immediately before final target/status verification, even when no sectors changed. Either final check failing therefore leaves reset prohibited. This correction and its two regression tests apply to the repository copy; active laboratory-run sources were not changed during staging.
 
 The reverse plan restores the complete baseline, including bytes occupied only by the longer candidate. Overlaying the shorter official package on the candidate is not equivalent. Main-array dumps do not cover separate EEPROM, internal NVM or security/OTP storage, and firmware can update configuration after boot.
 

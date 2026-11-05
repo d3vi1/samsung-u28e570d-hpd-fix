@@ -338,6 +338,9 @@ namespace SamsungExperimental
                     VerifySector(device, sector.Address, sector.AfterSha256);
                 }
                 if (state.MutationStarted) device.WriteDisable();
+                // Revoke preflight permission even when no sectors changed: a
+                // failed final image/status check must never retain reset permission.
+                state.ResetAllowed = false;
                 VerifyFull(device, snapshot.TargetSha256, "Target");
                 if (!Equal(initialStatus, Status(device)))
                     throw new InvalidOperationException("Status differs after target verification");
