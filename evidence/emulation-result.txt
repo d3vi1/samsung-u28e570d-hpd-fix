@@ -1,0 +1,1 @@
+PASS: 720 emulated state combinations; 1 preserve path; all fallback paths, full-word checks, unrelated GPIO bits, registers and flags verified. This is CPU p-code emulation, not AUX or hardware qualification.

@@ -1,0 +1,72 @@
+Independent bounded review — 1005.0-experimental.1 hook and guarded stub
+2026-11-05
+
+VERDICT: PASS within the stated static scope. No blocking finding found in
+hook/stub control flow, guard addresses, register preservation, OEN fallback,
+or exact body-diff metadata. This does not qualify hardware behavior.
+
+Immutable inputs reviewed
+- Manifest: work/1005-repo/patches/1005.0-experimental.1.json
+- Base body SHA256:
+  43d99a1e97a11735a95b5547fa0cbe297100753481c453876d970d747bc442d4
+- Patched body SHA256 independently reproduced by applying that manifest:
+  a4d6791e80e9050f4800e3fcf9fa2fd1af0f84dac0d99ee0b18f2dc17712d3b0
+- Body length unchanged: 1,276,176 bytes.
+
+Independent checks performed
+1. Re-read the stock body and all manifest before/after spans. Verified base
+   hash, address minus runtime base==file offset, equal replacement lengths,
+   exact expected original bytes, and final hash. Declared spans are:
+     0x240A24 / offset0x3D224 / 4 bytes;
+     0x2EB500 / offset0xE7D00 / 264 bytes;
+     0x3303E5 / offset0x12CBE5 / 6 bytes.
+   The cave's264 original bytes are allzero. Actual unequalbytes total87:
+   hook4, stub81, displayedversion2. No other bodybyte changes.
+2. Matched every listingbyte to the manifeststub. Independently decoded the
+   raw big-endian branch instruction fields using the AEON R2 signed-offset
+   definitions, rather than trusting the printed destinations:
+     hook240A24 ->2EB500;
+     guard branches2EB50B/516/521/52C/537/542 ->2EB600;
+     preserve2EB546 ->240A2F;
+     fallback2EB604 ->240A28.
+   All targets match and point to known instruction boundaries. There is no
+   fall-through into padding: preserve ends in a directjump; every failed
+   condition branches to the fallback block.
+3. Independently decoded the LHZ immediate/address fields: effectiveaddresses
+   are35A82E,35A830,35A836. They are aligned16-bitloads. This firmware's data
+   is littleendian, so the comparisons inspect complete words0x000A,0,0,
+   not merely their lowbytes. Marker is a byte.
+4. RIU10181E maps correctly to CPUaddressA020303C:
+   A0000000 + 2*10181E - (10181E&1) = A020303C.
+   The hardcoded base matches this exact image's established MMIO base.
+5. Hook replaces only stock LBZ r7,[r6+840]. Entrycontext from240A1C/20
+   establishes r5=340000 and r6=global33AF8C. The stub writes onlyr7;
+   it does not call functions, touch the stack/linkregister, or modifyr5/r6.
+   Its selected instructions do not alter the F/CY conditionflags under the
+   AEON semantics. r7 is already scratch at the replaced instruction.
+6. Fallback at2EB600 reloads the originalOUT byte into r7 and rejoins at
+   240A28. OriginalAND DF andOUT store then execute, followed by stockOEN
+   load/AND/store. Reloading is essential because guardtests overwrite r7;
+   the implementation does so correctly.
+7. Preserve path requires marker2, reasonA, port0, forcedoff0, OENbit5=0,
+   OUTbit5=1. It rejoins at240A2F, bypassing only theOUT-clear/store. The
+   originalOENclear still executes; because itsbit5 wasalready0 this does
+   not newly enable a previouslytri-statedHPD. LatchLOW or OENbit5=1 falls
+   back. UnrelatedGPIO bits are retained by the original read/modify/write.
+8. Reviewed TestHpdStub.java and its recorded720-case result. The cases cover
+   all guardfailures, high-byte-only nonzero port/off fields, reason0x010A,
+   output/OEN combinations, preservedregisters and flags. I did not reopen
+   the shared Ghidra project or rerun that emulation; the branch/metadata
+   checks above were independently executed outsideGhidra.
+
+Scope limits
+- This review confirms the encoded predicate and rejoin behavior, not the
+  freshness of a marker2 mailbox across arbitrary resets or the physical
+  validity of every preservedHIGH case.
+- Proving that the zero-filled cave is never used as runtime workspace needs
+  the separate image-layout/code-cave audit. This review checked its exact
+  bytes and controlflow, not every possible computedreference.
+- No container/checksum/updater/flashing review was performed here.
+- AUX/EDID continuity, transient GPIO behavior under asynchronous hardware,
+  actual startup execution during the observedloop, and successfulwake remain
+  hardware qualification items. No claim of a confirmedfix follows.

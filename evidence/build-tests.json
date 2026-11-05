@@ -1,0 +1,14 @@
+{
+  "passed": 7,
+  "checks": [
+    "byte-exact stock reconstruction, including all four CRC fields",
+    "deterministic candidate rebuild within this zlib runtime",
+    "application delta is confined to hook, stub and version; exact reverse delta restores original",
+    "bootstrap and PM51 unchanged; main bootstrap changes only its compressed-length field",
+    "compressed-payload and bootstrap corruptions rejected",
+    "both CRC16 corruptions rejected even after repairing enclosing CRC32s",
+    "wrong base rejected before patching"
+  ],
+  "candidate_sha256": "3d5cda5eb49c6c0bb0378742aa1767becd31d3b3e85a6c0b9c023bd6ada2dac4",
+  "hardware_tested": false
+}

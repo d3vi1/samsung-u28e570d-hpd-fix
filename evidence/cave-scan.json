@@ -1,0 +1,15 @@
+{
+  "cave": [
+    "0x2eb500",
+    "0x2eb608"
+  ],
+  "padding": [
+    "0x2eb4eb",
+    "0x2ec000"
+  ],
+  "cave_zero": true,
+  "raw_pointer_hits": [],
+  "constant_materialization_hits": [],
+  "direct_branch_hits": [],
+  "limitations": "No loader/BSS or complete pointer analysis; absence in these bounded scans is not proof of no dynamic accesses."
+}

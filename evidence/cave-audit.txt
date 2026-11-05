@@ -1,0 +1,39 @@
+Independent bounded code-cave audit — 2026-11-05
+
+Candidate runtime interval [0x2EB500,0x2EB608), 264 bytes, body offset
+0xA7D00. Source stock app.bin base0x203800, size0x137910, end0x33B110.
+It is wholly within an all-zero padding run [0x2EB4EB,0x2EC000), 2837 bytes,
+after readonly strings/tables and before initialized data at0x2EC000.
+
+The reproducible check_cave.py scans every byte position for little- and
+big-endian32-bit values pointing inside the exact candidate interval,
+including aliases after mask0x3FFFFFFF. None found. The decoded application
+listing likewise has no direct branch target inside it. A conservative
+straight-line constant resolver found no address materialization into it.
+Results: cave-scan.json. These scans do not constitute complete alias or
+control-flow analysis and do not exclude dynamically computed accesses.
+
+Broader padding is NOT entirely free of numerical address matches. For
+example bytes at0x2EA2D0 equal little-endian0x2EBB44 and bytes at0x3143B0
+equal0x2EB626. Several others lie in pixel/data-like regions. They do not
+overlap the exact cave interval, but this audit does not grant permission
+to extend the stub into the rest of the padding without renewed checking.
+
+Startup0x264614 converts bounds0x204000 and0x2EC000 to physical addresses
+and passes them to0x264593. That helper rounds boundaries and delegates
+to0x264F22 ->0x2650E0. The latter programs register offsets0x12C0/12C2
+and related controls using8KiB units. The candidate is inside the first
+configured range. This supports using existing application storage, but
+the observed routine alone is NOT proof of executable permission: it
+looks like memory-client protection configuration rather than an explicit
+instruction-execution map. Exact register semantics remain unnamed.
+
+No application store/clear targeting this interval was identified in the
+bounded scans. Loader copy/decompression and bootstrap BSS clearing have
+not been independently reconstructed here; the packaging investigation
+owns that remaining question. Full decompressed data includes the padding,
+but presence in a file alone cannot prove how the boot code treats it.
+
+Conclusion: no concrete overlap or application-side reference objection
+found for the exact264-byte cave. Static acceptance is bounded; successful
+runtime loading/execution remains a qualification requirement.
