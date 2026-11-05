@@ -116,3 +116,7 @@ For the standby reproduction, avoid repeated DDC/AUX polling: it may itself affe
 As an initial qualification run, capture at least ten minutes of standby and repeat at least ten sleep/wake cycles, followed by a longer idle test. Record the actual durations and counts, including failures. Do not treat one successful wake or the absence of Mac hotplug notifications as sufficient evidence.
 
 When reporting a result, include the candidate image hash, test matrix results, reproduction steps and relevant redacted logs. Distinguish measured electrical signals, host software events and visual observations. A successful report should demonstrate both stable standby and reliable subsequent wake.
+
+## License and firmware ownership
+
+The project's original build tools, patch code and documentation are provided under the [MIT license](LICENSE). This license does not apply to Samsung's firmware or third-party tools. Obtain the base firmware from Samsung; monitor-specific backups are not part of this repository.
