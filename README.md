@@ -1,6 +1,6 @@
 # Samsung U28E570D HPD standby experiment
 
-**1005.0 is an unofficial, experimental modification of Samsung firmware 1004.5. It has not been tested on hardware and is not a confirmed fix.** The version number is a community build identifier, not a Samsung release.
+**1005.0 is an unofficial, experimental modification of Samsung firmware 1004.5. Programming, full read-back and boot have been verified on one unit; the DisplayPort standby fix is not yet confirmed.** The version number is a community build identifier, not a Samsung release. See the [hardware qualification log](evidence/HARDWARE-RESULTS.md).
 
 This project investigates repeated DisplayPort disconnect/reconnect events while a Samsung LU28E570DS/EN attempts to enter standby. The observed setup was an M2 Max Mac connected through a CalDigit TS4. Mac-side logs recorded approximately 520 ms of HPD LOW every 9.02 seconds while the display remained logically asleep. Those logs do not establish the electrical HPD level at the monitor connector or prove which firmware routine ran.
 
@@ -47,6 +47,22 @@ The delta changes 87 actual application bytes across three declared spans: a fou
 
 The Ghidra scripts under `tools/` and `tests/` document assembly and p-code validation using [eb4x/ghidra-plugin-aeon](https://github.com/eb4x/ghidra-plugin-aeon). They operate on a stock application imported at `0x203800`; the read-only assembler script emits `hook.bin` and `stub.bin`, then the emulator script reads those two files. They are optional for normal Python builds, which use the reviewed delta.
 
+## Windows laboratory tools
+
+The optional [Windows laboratory implementation](windows/experimental/README.md) includes an independent C# container validator, an exact full-image transition planner, a rollback engine, simulated-failure tests and a disabled NVAPI hardware adapter. Its 21 simulator cases passed on PowerShell 7 and Windows PowerShell 5.1. Hardware execution remains disabled in the repository; the reviewed local experiment uses a separate, explicit device profile.
+
+## Read the running firmware identifier on macOS
+
+The optional helper sends only the fixed C3/0 identification query. It requires exactly one active external display and one DCP AV service, and refuses to query an asleep/inactive display. It uses private IOAV APIs and has been exercised on the investigation's M2 Max/TS4 setup; compatibility with other Macs is not established.
+
+```sh
+clang -Wall -Wextra -framework Foundation -framework IOKit -framework CoreGraphics \
+  macos/read_firmware_id.m -o /tmp/samsung-read-firmware-id
+/tmp/samsung-read-firmware-id
+```
+
+This is an active DDC query: run it while awake, before or after a passive standby capture, never as a polling loop during sleep. It validates the frame and checksum. The version distinguishes the two test firmwares when the DisplayPort EDID uses a generic serial; it does not replace physical unit identification.
+
 ## What the experiment changes
 
 Stock startup writes HPD LOW at AEON address `0x240A2B`, even though it has already imported the PM51 wake mailbox. Later initialization requests HPD HIGH. Normal internal standby mode skips a separate explicit HPD LOW call; internal power-off mode executes it.
@@ -86,7 +102,7 @@ The observed loop has not been traced to execution of `0x240A2B`. Other timed an
 | Hook/stub review and CPU emulation | Independent scoped review passed; 720 state combinations passed |
 | Loader/BSS treatment of stub | Verified: BSS clearing excludes the stub |
 | Physical HPD/AUX capture of the original loop | Not obtained |
-| Patched firmware flashed or booted | Not tested |
+| Patched firmware flashed or booted | Verified on one unit; initial DDC settling issue and later valid checks recorded separately |
 | Standby-loop fix and regression matrix | Not tested |
 
 Offline validation must verify the exact input hash, patch-site bytes, instruction boundaries, branch destinations, register preservation, unchanged unrelated regions, and decompression round-trip of the final container. Predicate tests must cover every guard's failure as well as the intended preserve case. These checks must be reported separately from hardware tests.

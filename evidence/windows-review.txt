@@ -1,0 +1,17 @@
+Windows integration review, 2026-11-05
+
+Reviewed base: 64e0c75e0f966bcad86d54199dcedffd90aeb7fb
+Resolved version: faa8982cc3cff12c8c747f228e84e87eccbcec95
+
+Independent parser/preparation review: no P1/P2 findings; format agrees
+with the independently verified Python implementation.
+Transaction review found a no-op reset-permission defect. The resolved
+version revokes permission before final image/status verification and adds
+two failure tests. Focused re-review confirmed resolution.
+NVIDIA adapter and SPI transport integration review found no additional
+concrete blocking defect in the reviewed scope.
+
+Windows owner reports 21 simulator cases passing on PowerShell 7 and 5.1.
+Mac reviewers inspected these tests but did not rerun C# on macOS.
+These are source/integration checks, not standby or hardware qualification.
+The active device test used a 109-sector plan, outside the no-op defect.
