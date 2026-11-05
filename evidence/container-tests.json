@@ -1,0 +1,47 @@
+{
+  "passed": 9,
+  "checks": [
+    "official image: four independent stored CRC fields and service sum match",
+    "same-stream reconstruction is byte-for-byte identical to the official SHA256",
+    "recompression: deterministic in this zlib runtime; exact application, bootstrap and PM51 preserved",
+    "synthetic one-byte body mutation survives roundtrip exactly (memory-only, not a firmware candidate)",
+    "compressed payload corruption rejected",
+    "bootstrap corruption rejected",
+    "inner CRC16 corruption rejected despite valid enclosing CRC32s",
+    "outer CRC16 corruption rejected despite valid final CRC32",
+    "repacker rejects any base other than the pinned official image"
+  ],
+  "stock": {
+    "container_sha256": "60e0b2322236b03673d1bd8b5182b36462824baada9a8ec9bff6c724d30d060b",
+    "container_length": 578748,
+    "main_end": 578730,
+    "crc32_offset": 578744,
+    "compressed_length": 433188,
+    "app_length": 1276176,
+    "app_sha256": "43d99a1e97a11735a95b5547fa0cbe297100753481c453876d970d747bc442d4",
+    "main_crc32": "9A36F923",
+    "inner_crc16": "95D5",
+    "outer_crc16": "BBB7",
+    "file_crc32": "90B3850E",
+    "service_sum16": "48D0",
+    "validation_scope": "offline container integrity only; no execution or hardware qualification",
+    "zlib_runtime": "1.2.12"
+  },
+  "recompressed_unchanged_application": {
+    "container_sha256": "10a017e52a2a160dbcb386d90ba1971649814d08c2bc3855b7737c2cdfda92de",
+    "container_length": 580972,
+    "main_end": 580955,
+    "crc32_offset": 580968,
+    "compressed_length": 435413,
+    "app_length": 1276176,
+    "app_sha256": "43d99a1e97a11735a95b5547fa0cbe297100753481c453876d970d747bc442d4",
+    "main_crc32": "5F8FCB88",
+    "inner_crc16": "8FDD",
+    "outer_crc16": "BBB7",
+    "file_crc32": "462D8EBF",
+    "service_sum16": "430F",
+    "validation_scope": "offline container integrity only; no execution or hardware qualification",
+    "zlib_runtime": "1.2.12"
+  },
+  "hardware_tested": false
+}

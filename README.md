@@ -84,6 +84,7 @@ The observed loop has not been traced to execution of `0x240A2B`. Other timed an
 | Guarded patch design | Reviewed as an experiment |
 | Final binary and container verification | Built; 7 integration checks and 9 container-format checks passed |
 | Hook/stub review and CPU emulation | Independent scoped review passed; 720 state combinations passed |
+| Loader/BSS treatment of stub | Verified: BSS clearing excludes the stub |
 | Physical HPD/AUX capture of the original loop | Not obtained |
 | Patched firmware flashed or booted | Not tested |
 | Standby-loop fix and regression matrix | Not tested |

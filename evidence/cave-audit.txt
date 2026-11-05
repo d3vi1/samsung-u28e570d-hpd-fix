@@ -1,3 +1,7 @@
+UPDATE: The separate loader audit resolved the BSS question below.
+CRT0 clears [0x33B110, 0x35B460), which excludes this cave.
+See LOADER-BSS.md. Historical bounded scan results follow.
+
 Independent bounded code-cave audit — 2026-11-05
 
 Candidate runtime interval [0x2EB500,0x2EB608), 264 bytes, body offset
