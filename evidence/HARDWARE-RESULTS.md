@@ -56,4 +56,10 @@ The stock comparison unit from the Mac test was subsequently connected to the Wi
 - Two identical, checksum-valid C3/0 replies identified the running application as `m-E5728UMDB-1005.0`. C8 replies before and after those queries were valid and retained privately.
 - EDID and the settled queried settings matched before/after: brightness/contrast **100/50**, RGB **50/50/50**, preset **2**, raw input value **5**. This is not a complete configuration-EEPROM comparison.
 
-Windows/HDMI standby capture is prepared but has no result yet. It will run after programming with the connection preserved, without active DDC polling during standby. There is no comparable pre-upgrade Windows/HDMI capture; this prospective HDMI test does not substitute for patched DisplayPort qualification on the second unit.
+## Windows/HDMI capture preparation — 2026-11-06
+
+**No standby test was executed.** A passive Win32 listener and an awake OS snapshot identified the HDMI monitor at 3840×2160, 30 Hz. Display-off was never requested, so there is no sleep interval, flicker observation or wake result to evaluate.
+
+The first started ETW session was stopped cleanly when its PowerShell 5.1 supervisor encountered a null `Process.ExitCode` from `Start-Process`. The supervisor was changed to use `System.Diagnostics.Process`; four dummy-process tests passed, covering exit codes 0/7 and large stdout/stderr. The subsequent corrected launch was cancelled at the Windows UAC prompt and did not start an ETW session. The passive preparation listener was then stopped cleanly. These are capture-tool preparation results, not HDMI firmware qualification.
+
+A new capture requires the operator at the PC to accept UAC, observe standby and wake the displays manually. There is no comparable pre-upgrade Windows/HDMI capture. Any future HDMI result must be reported separately from DisplayPort qualification on this second unit; the firmware image remains unchanged.
