@@ -4,6 +4,9 @@ These applications share a backup format and operation contract. Their drivers a
 runtime qualification are independent: tests of a Windows/NVIDIA transport do not
 qualify Linux i2c-dev or macOS IOAV.
 
+The [validation record](VALIDATION.md) separates compiled/mock-tested components
+from unperformed operating-system and monitor qualification.
+
 The [macOS IOAV analysis](MACOS-IOAV.md) records the raw-addressing candidate and
 the boundary between local kernel evidence and unqualified DCP hardware behavior.
 
@@ -39,12 +42,37 @@ transfer bounds, short reads/writes, errors and the absence of vendor-command
 fallbacks. Firmware compatibility is enforced above the driver; adding Intel/AMD
 access does not expand the supported monitor or firmware list automatically.
 
+Native API references for provider contributors:
+
+| Platform/provider | API and qualification boundary |
+|---|---|
+| Windows NVIDIA | [NVAPI I²C](https://docs.nvidia.com/nvapi/group__i2capi.html); current implementation, independent runtime qualification required |
+| Windows Intel | [IGCL `ctlI2CAccess`](https://intel.github.io/drivers.gpu.control-library/Control/api.html#ctli2caccess); future provider; the documented driver-override flags are HDMI-specific |
+| Windows AMD | [ADL I²C/DDC APIs](https://gpuopen-librariesandsdks.github.io/adl/group__I2CDDCEDIDAPI.html); future provider; verify raw-mode support and limits before adapting MStar packets |
+| Linux | [Kernel i2c-dev](https://docs.kernel.org/i2c/dev-interface.html); available adapters and capabilities depend on the loaded hardware drivers |
+| macOS legacy framebuffer | [Apple's IOI2C implementation](https://github.com/apple-oss-distributions/IOKitUser/blob/main/graphics.subproj/IOGraphicsLib.c); future provider where the matching framebuffer interface exists |
+| macOS Apple Silicon | Private IOAV candidate described in [the local analysis](MACOS-IOAV.md); not a public compatibility guarantee |
+
+An API's existence does not establish its support for this monitor's ISP framing.
+The current Windows MStar adapter needs at least 256-byte reads and 37-byte writes.
+For example, AMD's [published ADL constants](https://github.com/GPUOpen-LibrariesAndSDKs/display-library/blob/master/include/adl_defines.h)
+include smaller limits for particular I²C entry points. A future provider must
+reject an insufficient transport or implement and test a suitable bounded
+packetization path; it must not simply advertise NVIDIA's limits.
+
 ## Shared backup format
 
 The formal structure is [backup.schema.json](backup.schema.json), with
 `schema = monitorfw.backup.v1` and `image_kind = spi_full`. It describes a completed
 2 MiB main SPI backup. It is not an authenticated certificate or permission to
 program a monitor.
+
+For the examined hardware profile, the canonical `model` is `LU28E570DS/EN`.
+This names the compatibility profile; it does not claim that EDID independently
+establishes the full regional suffix. Keep firmware-family/version text in separate
+fields instead of changing this identifier between implementations. Schema-valid
+artifacts with an ambiguous identity remain readable for inspection; hardware
+eligibility is a separate operation-specific decision.
 
 - Read the complete flash twice through independent passes. Save both raw files as
   `backup-read-1.bin` and `backup-read-2.bin` before comparing them. Do not discard
