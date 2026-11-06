@@ -52,7 +52,8 @@ The stock comparison unit from the Mac test was subsequently connected to the Wi
 - All 109 changed 4 KiB sectors passed individual verification by 07:15:02, with header sector `0x10000` last. There were zero reported errors, retries or rollbacks.
 - The final complete 2 MiB read matched `570adc6fda032365587a183450887bdfb6bbe967afbd31648d472e4fc8b3de75`; SR1/SR2 remained `00/00`.
 - ISP exit occurred at **07:27:26.703 Europe/Bucharest**. This unit's immediate post-boot check passed with process exit code 0; it did not reproduce the first unit's initial failed DDC check.
-- Two identical, checksum-valid C3/0 replies identified the running application as `m-E5728UMDB-1005.0`. Raw C8 replies before/after were retained privately.
-- EDID and the queried settings matched before/after: brightness/contrast **100/50**, RGB **50/50/50**, preset **2**, raw input value **5**. This is not a complete configuration-EEPROM comparison.
+- The immediate C8 probe passed, but the initial settings capture could not validate its VCP `0xD6` reply. A later settled capture read `D6 = 1`. Thus the successful post-boot process result does not mean every initial DDC read succeeded.
+- Two identical, checksum-valid C3/0 replies identified the running application as `m-E5728UMDB-1005.0`. C8 replies before and after those queries were valid and retained privately.
+- EDID and the settled queried settings matched before/after: brightness/contrast **100/50**, RGB **50/50/50**, preset **2**, raw input value **5**. This is not a complete configuration-EEPROM comparison.
 
 Windows/HDMI standby capture is prepared but has no result yet. It will run after programming with the connection preserved, without active DDC polling during standby. There is no comparable pre-upgrade Windows/HDMI capture; this prospective HDMI test does not substitute for patched DisplayPort qualification on the second unit.
