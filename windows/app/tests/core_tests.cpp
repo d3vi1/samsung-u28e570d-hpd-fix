@@ -325,6 +325,21 @@ int main() {
         const auto result=session.verify(originalPackage,ImageKind::SamsungPackage);
         check(!result.success && device.resetCalls==0 && device.eraseCalls==0,"Verify mismatch allowed reset/programming");
     });
+    test("cancellation during target staging prevents the first flash mutation",[&] {
+        MockFlash device(source); MemoryStore store; bool cancel=false,stagingReached=false;
+        Session session(device,store,device.identity,ProgressSink(),[&]{return cancel;});
+        const auto backup=session.backupTwice(); const auto plan=planPackageOverlay(backup,candidate,policy);
+        store.onSave=[&](MemoryStore&,const std::string& leaf){
+            if(leaf=="target-full.bin"){stagingReached=true;cancel=true;}
+        };
+        const auto result=session.execute(plan);
+        check(stagingReached && store.files.count("target-full.bin") && store.files.at("target-full.bin")==plan.target(),"Real target staging callback was not reached and persisted");
+        check(device.eraseCalls==0 && device.programCalls==0 && result.touchedSectors.empty(),
+            "Staging cancellation allowed mutation: erase_calls="+std::to_string(device.eraseCalls)+", program_calls="+std::to_string(device.programCalls));
+        check(!result.success && !result.targetVerified && !result.rollbackAttempted && !result.resetAttempted && device.resetCalls==0,"Staging cancellation allowed success, rollback or reset");
+        check(fullPasses(device)==4 && device.image==source,"Staging cancellation did not retain the complete preflight source");
+        check(result.recoveryRequired && store.recoveryArmed && store.clearCalls==0,"Staging cancellation cleared the recovery interlock");
+    });
     test("cancellation after mutation is deferred until complete target verification",[&] {
         MockFlash device(source); MemoryStore store;
         Session session(device,store,device.identity,ProgressSink(),[&]{return device.eraseCalls>0;});

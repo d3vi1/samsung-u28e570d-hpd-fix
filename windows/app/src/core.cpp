@@ -205,7 +205,10 @@ Result Session::execute(const FlashPlan& plan){
         // Once a sector is touched, cancellation is deferred until recovery or
         // complete verification. Never terminate the worker thread to cancel.
         for(std::size_t i=0;i<plan.sectors().size();++i){
-            const auto& block=plan.sectors()[i];r.touchedSectors.push_back(block.address);
+            const auto& block=plan.sectors()[i];
+            // Staging may take time: honor cancellation until the first mutation is recorded.
+            if(i==0 && cancel_ && cancel_())throw Error("Cancelled before first flash mutation");
+            r.touchedSectors.push_back(block.address);
             writeSector(block.address,plan.target(),32);
             require(sha256(device_.read(block.address,SectorSize))==block.afterSha256,"Sector hash differs from immutable plan");
             if(progress_){Progress p;p.phase="program-and-verify-sectors";p.done=std::uint32_t(i+1);p.total=std::uint32_t(plan.sectors().size());try{progress_(p);}catch(...){log("Progress callback failed after mutation");}}
