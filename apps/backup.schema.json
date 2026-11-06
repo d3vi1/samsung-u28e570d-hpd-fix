@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/d3vi1/samsung-u28e570d-hpd-fix/blob/main/apps/backup.schema.json",
+  "title": "Monitor Firmware dual-read SPI backup v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "image_kind",
+    "model",
+    "created_utc",
+    "identity",
+    "flash",
+    "reads",
+    "reads_equal",
+    "coding_eeprom"
+  ],
+  "properties": {
+    "schema": {
+      "const": "monitorfw.backup.v1"
+    },
+    "image_kind": {
+      "const": "spi_full"
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "manufacturer",
+        "product_code",
+        "edid_serial",
+        "edid_sha256",
+        "transport_locator",
+        "ambiguous",
+        "ambiguity_reason"
+      ],
+      "properties": {
+        "manufacturer": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "product_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "edid_serial": {
+          "type": "string"
+        },
+        "edid_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "transport_locator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ambiguous": {
+          "type": "boolean"
+        },
+        "ambiguity_reason": {
+          "type": "string"
+        }
+      }
+    },
+    "flash": {
+      "type": "object",
+      "required": [
+        "jedec",
+        "sfdp_sha256",
+        "sfdp_bytes",
+        "sfdp_file",
+        "capacity",
+        "sector_size",
+        "page_size",
+        "programming_chunk_size",
+        "status_before",
+        "status_after"
+      ],
+      "properties": {
+        "jedec": {
+          "const": "ef4015"
+        },
+        "sfdp_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sfdp_bytes": {
+          "const": 64
+        },
+        "sfdp_file": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "capacity": {
+          "const": 2097152
+        },
+        "sector_size": {
+          "const": 4096
+        },
+        "page_size": {
+          "const": 256
+        },
+        "programming_chunk_size": {
+          "const": 32
+        },
+        "status_before": {
+          "type": "string",
+          "enum": [
+            "0000",
+            "000260"
+          ]
+        },
+        "status_after": {
+          "type": "string",
+          "enum": [
+            "0000",
+            "000260"
+          ]
+        }
+      }
+    },
+    "reads": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "bytes",
+          "sha256"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "bytes": {
+            "const": 2097152
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "reads_equal": {
+      "const": true
+    },
+    "simulated": {
+      "type": "boolean"
+    },
+    "coding_eeprom": {
+      "type": "object",
+      "required": [
+        "available",
+        "reason"
+      ],
+      "properties": {
+        "available": {
+          "const": false
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "description": "This schema describes a completed dual-read artifact, not permission to flash. Readers must recompute both image hashes and SFDP hash, compare actual bytes/status, reject unsafe references, and verify live identity/profile and firmware policy."
+}
