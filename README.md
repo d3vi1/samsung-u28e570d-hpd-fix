@@ -66,6 +66,25 @@ The delta changes 87 actual application bytes across three declared spans: a fou
 
 The Ghidra scripts under `tools/` and `tests/` document assembly and p-code validation using [eb4x/ghidra-plugin-aeon](https://github.com/eb4x/ghidra-plugin-aeon). They operate on a stock application imported at `0x203800`; the read-only assembler script emits `hook.bin` and `stub.bin`, then the emulator script reads those two files. They are optional for normal Python builds, which use the reviewed delta.
 
+## Cross-platform firmware applications
+
+The [application sources and shared backup contract](apps/README.md) add a Linux
+CLI, a native macOS SwiftUI application, and Windows C++ applications with a
+Win32 frontend and a separate WinRT/XAML frontend. These are development tools;
+their test results do not extend the hardware qualification of the firmware.
+
+Each application separates the I²C provider from the MStar protocol and flash
+transaction engine. Windows implements NVIDIA NVAPI and supplies extension
+interfaces for Intel and AMD. Linux uses the kernel's vendor-independent
+`i2c-dev` interface where a suitable adapter is exposed. macOS implements an
+experimental Apple Silicon IOAV read path; its hardware write gate remains
+closed pending transport qualification, and Intel IOI2C is an extension point.
+
+See the individual [Windows](windows/app/README.md), [Linux](linux/README.md),
+and [macOS](macos/MonitorFirmware/README.md) build instructions and qualification
+limits. Full SPI backups use two complete reads and preserve their evidence.
+The separate [coding EEPROM is not included](apps/CODING-EEPROM.txt).
+
 ## Windows/NVIDIA flashing reference
 
 The optional [Windows laboratory implementation](windows/experimental/README.md) includes an independent C# container validator, an exact full-image transition planner, a rollback engine, simulated-failure tests and a disabled NVAPI hardware adapter. Its 21 simulator cases passed on PowerShell 7 and Windows PowerShell 5.1. Hardware execution remains disabled in the repository; the reviewed local experiment uses a separate, explicit device profile.

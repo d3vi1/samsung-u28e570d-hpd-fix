@@ -1,0 +1,39 @@
+{
+  "schema": "monitorfw.flash-profiles.v1",
+  "scope": "Observed profiles for the examined Samsung firmware family, not a general EF4015 compatibility claim",
+  "profiles": [
+    {
+      "id": "winbond-ef4015-legacy",
+      "jedec": "ef4015",
+      "capacity": 2097152,
+      "sector_size": 4096,
+      "page_size": 256,
+      "programming_chunk_size": 32,
+      "sfdp_bytes": 64,
+      "sfdp_known_prefix_hex": "53464450000100ff00000109800000ff",
+      "status_read_opcodes": [
+        "05",
+        "35"
+      ],
+      "expected_idle_status": "0000",
+      "write_status_registers": false
+    },
+    {
+      "id": "winbond-ef4015-jv",
+      "jedec": "ef4015",
+      "capacity": 2097152,
+      "sector_size": 4096,
+      "page_size": 256,
+      "programming_chunk_size": 32,
+      "sfdp_bytes": 64,
+      "sfdp_known_prefix_hex": "53464450050100ff00050110800000ff",
+      "status_read_opcodes": [
+        "05",
+        "35",
+        "15"
+      ],
+      "expected_idle_status": "000260",
+      "write_status_registers": false
+    }
+  ]
+}

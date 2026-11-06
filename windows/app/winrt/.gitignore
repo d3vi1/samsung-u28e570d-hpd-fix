@@ -1,0 +1,15 @@
+build/
+AppPackages/
+Debug/
+Release/
+x64/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.pfx
+*.cer
+*.appx
+*.appxupload
+*.appxbundle

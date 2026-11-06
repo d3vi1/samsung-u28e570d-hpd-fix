@@ -1,0 +1,152 @@
+Coding/settings EEPROM backup route — application capability review
+2026-11-06. Static analysis only. No monitor I/O or configuration changes.
+
+RESULT
+No verified route currently exports the COMPLETE coding EEPROM through the
+stock 1004.5 firmware, the existing 1005 HPD patch, or the validated ISP
+transport. Apps should report this capability as unavailable, rather than
+labeling the SPI image, EDID, model string, or partial counters as its backup.
+This is a bounded absence-of-validated-route finding, not a claim that the
+silicon can never expose the EEPROM through another mechanism.
+
+The examined 1005 patch changes startup HPD handling and the version string;
+it adds no EEPROM command. Existing 1004.5 EEPROM/command findings therefore
+remain relevant to that patch. No new app files were edited for this review.
+
+1. PHYSICAL BUS AND INTERNAL READER
+The firmware reads this storage through an internal software I2C bus:
+  0x231331(offset,destination,length) -> 0x22F353(0xA0,offset,destination,length)
+  0x231342(offset,destination) -> same reader, length 1.
+The actual bus sequence uses device-write A0, two address bytes, repeated
+START, device-read A1, data with final NACK, then STOP. The address-pointer
+write used for a random read is not EEPROM data programming.
+GPIO OUT/OEN/INPUT are RIU 0420/0422/0424, AEON A0000840/844/848;
+SCL is bit 0, SDA bit 1. This is not the monitor's externally served EDID bus.
+The matching numerical seven-bit address 0x50 does not bridge the two buses.
+
+Physical chip part number/capacity has NOT been established. The address
+primitive supports a 16-bit word address. That does not prove 64 KiB capacity.
+The software's 0x4000 bounds below do not by themselves prove 16 KiB capacity.
+
+2. RAM IS NOT A VERIFIED FULL EEPROM IMAGE
+Reader/copy helper 0x231536 reads into 0x3566F0+offset and copies to
+0x34E6F0+offset. Fresh read-only decode confirms that the valid-configuration
+startup path in 0x241742 calls these wrappers:
+  0x24130F: offset 0x0000, length 0x00BF;
+  0x241305: offset 0x00BF, length 0x00D4;
+  0x241378: offset 0x0193, length 0x0840.
+Together they request the contiguous interval 0x0000..0x09D2: 2,515 bytes.
+This establishes a conditional startup-load subset, subject to successful
+reads, not the whole physical device. Subsequent application edits can make
+the working buffer differ from persistent data; neither array is an atomic
+snapshot merely because its addresses are consecutive.
+
+There is concrete EEPROM use outside that subset. ROM word 0x2EDCB8 is
+0x12D7. Startup calibration reader 0x228FBE -> 0x228EE6 reads three blocks
+of 41 * 51 bytes, starting there, and reads a two-byte check at 0x2B58.
+Its destination is a separate expanded structure based at RAM 0x34BDC8,
+with a per-channel stride of 0xCF9. This is not simply the model/config
+mirror. The fact that firmware requests these addresses does not prove
+every read succeeds or identify the physical chip's final address.
+
+Commit helper 0x231590 compares the working array 0x34E6F0 against readback
+shadow 0x3566F0, consults per-byte suppression flags at 0x3526F0, and bounds
+its write-comparison loop below 0x4000. It then calls the EEPROM writer for
+differences. Thus these three 0x4000-spaced arrays describe a software data
+model, not evidence that all 16,384 EEPROM bytes were read. Do NOT call this
+helper or 0x231678 as a supposed read/refresh operation: they can write NVM.
+
+Even the known 2,515-byte RAM subset is not presently exportable through a
+validated external path. SERDB arbitrary DDR access on MST9U01V has not been
+established. RIU 3C00/3C02/3C06 accesses the known internal SRAM/DDC window
+around 0x4700; it is not a demonstrated route to 0x34E6F0 or 0x3566F0.
+
+3. VERIFIED PARTIAL READ: PROPRIETARY DDC COMMAND C3
+Handler 0x243A53 exposes only these fixed EEPROM ranges:
+  sub 02 -> 0xAF..0xB4, six bytes;
+  sub 03 -> 0xA9..0xAE, six bytes;
+  sub 04 -> 0xB6..0xBB, six bytes;
+  sub 05 -> 0xBD, one byte.
+Total coverage is 19 bytes. Sub 00 is firmware identification; sub 01 is
+panel identification. There is no request-supplied address or length.
+
+Exact existing protocol, seven-bit DDC destination 0x37:
+  request 02: 51 82 C3 02 7C
+  request 03: 51 82 C3 03 7D
+  request 04: 51 82 C3 04 7A
+  request 05: 51 82 C3 05 7B
+Response length is 23 bytes: 6E 94 C3 sub [18 data bytes] checksum.
+Six-byte payloads are at response indices 16..21; sub 05 is at index 21.
+XOR of seed 0x50 and all 23 response bytes must equal zero. Check exact
+length, header, subcommand echo and checksum; reject stale/mismatched frames.
+This is command C3, NOT Set VCP code C3. Previously repeated successfully
+on the Windows-owned Samsung with valid framing and normal settled recovery.
+
+No configuration-write primitive was found on these four C3 branches or
+their traced response cleanup paths. However, 0x22F353 returns void and can
+exhaust retries without exposing a read-success status. A valid DDC frame
+therefore authenticates framing, not successful underlying EEPROM access.
+Repeats and consistency checks improve confidence but do not fix this API
+limitation. Normal counter updates may also occur between separate reads.
+
+If exposed by an app, name this 'partial diagnostic counters', store ranges
+and raw frames in JSON, and mark complete=false and physicalSize=unknown.
+Do not synthesize a padded EEPROM .bin that looks complete or restorable.
+Perform it in normal active DDC mode after ISP exit and settled recovery,
+not concurrently with flashing or during a passive sleep experiment.
+
+4. OTHER COMMANDS DO NOT SUPPLY A COMPLETE SAFE ROUTE
+- Get VCP 0x7B is unsupported in the examined dispatcher.
+- CC returns RAM 0x35A838, a request echo populated by CB. No complete or
+  current EEPROM provenance is established. CB programs EEPROM, including
+  model block 0x84..0x91; it is not a harmless preparation for CC.
+- C2 programs fixed EEPROM fields. C4/sub09 programs EDID-related fields
+  and invokes GPIO/timer behavior. None is an allowed backup preparation.
+- ISP at 0x49, entered by MSTAR, tunnels SPI flash commands 0x10/11/12.
+  Its 2 MiB dump is firmware SPI storage; no cross-bus EEPROM reader was
+  found in that protocol or in the reference implementation.
+- Direct external DDC 0x50 yields EDID. It is not the internal coding
+  EEPROM, despite the shared I2C number.
+
+5. SERDB/GPIO READS ARE NOT AN EEPROM BACKUP IMPLEMENTATION
+The PC previously corroborated pointer-only SERDB register reads using
+SERDB -> 35 -> combined pointer/read -> 34 -> 45; GPIO samples matched
+the internal bus's idle levels. That validates register access, not memory
+ownership or arbitrary DDR access. AEON and PM51 both touch these GPIO
+banks. No verified exclusion/halt/resume scheme covering both contexts
+exists. An external bitbang reader would require GPIO writes and could
+collide with ordinary EEPROM activity. Holding a line through a shared
+register is not a lock: firmware START releases the same pins itself.
+Therefore this route must not be silently used by 'backup EEPROM'.
+
+6. APPLICATION INTERFACE RECOMMENDATION
+Expose separate capabilities:
+  firmwareSpiRead/write/verify: supported only by the independently
+    qualified transport and device profile;
+  fullCodingEepromRead: unsupported, reason 'No validated complete read route';
+  codingEepromPhysicalSize: unknown;
+  fixedCounterDiagnostics: optional, profile-specific C3 ranges only.
+
+A full-EEPROM request should fail explicitly before issuing monitor I/O.
+The UI should state that a firmware SPI backup excludes coding EEPROM.
+Avoid a generic arbitrary-SERDB read or fallback-to-EDID behavior in the apps.
+
+To add full backup later, a separate qualification step must establish the
+physical EEPROM geometry and either a complete read-only firmware command
+or a validated memory/bus transport with complete population and coherence.
+A possible future firmware command would use the internal EEPROM reader
+in its normal execution context, with bounded offset/length and explicit
+per-transfer success reporting; simply exporting a RAM mirror is insufficient.
+That command does not exist in the current patch, and none is proposed as
+already implemented or tested here.
+
+SOURCES
+Existing outputs: samsung-eeprom-read-route.txt and
+samsung-serdb-static-validation.txt (historical status text predates the
+later HPD patch; used only for the concrete EEPROM evidence).
+Local static exports: eeprom-route.c, eeprom-route2.c, eeprom-route3.c,
+eeprom-transport.c, eeprom-bus.c, eeprom-cc.c, timer-confirm.c,
+startup-reason.c, and stock app.bin mapped at 0x203800.
+Fresh read-only Ghidra inspection: 0x241305, 0x24130F, 0x241378,
+0x25E682, 0x231590, 0x231331, 0x22F353; output inspected without saving
+changes to the project. No app or repository files were modified.
