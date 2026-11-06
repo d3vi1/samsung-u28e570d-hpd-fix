@@ -214,8 +214,9 @@ The observed loop has not been traced to execution of `0x240A2B`. Other timed an
 | Hook/stub review and CPU emulation | Independent scoped review passed; 720 state combinations passed |
 | Loader/BSS treatment of stub | Verified: BSS clearing excludes the stub |
 | Physical HPD/AUX capture of the original loop | Not obtained |
-| Patched firmware flashed or booted | Verified on one unit; initial DDC settling issue and later valid checks recorded separately |
+| Patched firmware flashed or booted | Verified on two units; first unit's initial DDC settling issue and second unit's immediate successful check recorded separately |
 | Initial Mac/TS4 standby and wake | 429.746217 seconds, zero patched-path disconnects; image returned after manual wake |
+| Windows/HDMI standby and wake on second unit | Capture prepared; result pending |
 | Broader regression matrix / electrical AUX compliance | Not established |
 
 Offline validation must verify the exact input hash, patch-site bytes, instruction boundaries, branch destinations, register preservation, unchanged unrelated regions, and decompression round-trip of the final container. Predicate tests must cover every guard's failure as well as the intended preserve case. These checks must be reported separately from hardware tests.

@@ -43,3 +43,16 @@ The patched monitor had one interface termination and WindowServer OUT/IN **duri
 The capture remained healthy: no stderr errors, 21,869 log records and 428 registry samples in the controlled sleep window. Redacted machine-readable results are in [standby-20261106.json](standby-20261106.json); the stock WindowServer event offsets are in [stock-windowserver-events.csv](stock-windowserver-events.csv).
 
 **Limits:** this compares different physical units and different TS4 output paths, not the same unit before and after the patch. Cached VRR capabilities and brightness/contrast differ. The original symptom trace used the stock unit at 100/50. There is no electrical HPD/AUX analyzer capture, same-unit rollback comparison, repeated wake-cycle qualification or long-term reliability result. Stable standby and successful wake were observed in this specific first test; complete DisplayPort compliance is not established.
+
+## Second unit programming and boot — 2026-11-06
+
+The stock comparison unit from the Mac test was subsequently connected to the Windows/NVIDIA host through HDMI 1 at 30 Hz and upgraded using the same immutable candidate. Its own identity, backup and legacy flash profile were verified before programming; its profile uses SR1/SR2 without assuming SR3 availability.
+
+- Full 2 MiB preflight matched the expected 1004.5 baseline at 07:06:33 Europe/Bucharest.
+- All 109 changed 4 KiB sectors passed individual verification by 07:15:02, with header sector `0x10000` last. There were zero reported errors, retries or rollbacks.
+- The final complete 2 MiB read matched `570adc6fda032365587a183450887bdfb6bbe967afbd31648d472e4fc8b3de75`; SR1/SR2 remained `00/00`.
+- ISP exit occurred at **07:27:26.703 Europe/Bucharest**. This unit's immediate post-boot check passed with process exit code 0; it did not reproduce the first unit's initial failed DDC check.
+- Two identical, checksum-valid C3/0 replies identified the running application as `m-E5728UMDB-1005.0`. Raw C8 replies before/after were retained privately.
+- EDID and the queried settings matched before/after: brightness/contrast **100/50**, RGB **50/50/50**, preset **2**, raw input value **5**. This is not a complete configuration-EEPROM comparison.
+
+Windows/HDMI standby capture is prepared but has no result yet. It will run after programming with the connection preserved, without active DDC polling during standby. There is no comparable pre-upgrade Windows/HDMI capture; this prospective HDMI test does not substitute for patched DisplayPort qualification on the second unit.
