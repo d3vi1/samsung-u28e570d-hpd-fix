@@ -1,0 +1,48 @@
+<Page x:Class="MonitorFirmwareFrontend.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="32" MaxWidth="1080" HorizontalAlignment="Left">
+      <TextBlock Text="Monitor firmware" FontSize="36" Margin="0,0,0,12" />
+      <TextBlock Text="Windows 8 XAML frontend · Desktop bridge required" TextWrapping="Wrap" />
+      <TextBlock Text="Mock mode simulates a monitor. Hardware mode requires an enabled desktop broker. Upload plans are confirmed in the desktop window." TextWrapping="Wrap" Margin="0,8,0,20" />
+      <TextBlock Text="Mode" />
+      <ComboBox x:Name="ModeBox" SelectedIndex="0" SelectionChanged="ContextChanged" MinWidth="260">
+        <ComboBoxItem Content="Mock — simulated device" Tag="mock" />
+        <ComboBoxItem Content="Hardware — explicit device access" Tag="hardware" />
+      </ComboBox>
+      <TextBlock Text="Provider" Margin="0,12,0,0" />
+      <ComboBox x:Name="ProviderBox" SelectedIndex="0" SelectionChanged="ContextChanged" MinWidth="260">
+        <ComboBoxItem Content="NVIDIA" Tag="nvidia" />
+        <ComboBoxItem Content="Intel — unavailable" Tag="intel" IsEnabled="False" />
+        <ComboBoxItem Content="AMD — unavailable" Tag="amd" IsEnabled="False" />
+      </ComboBox>
+      <TextBlock x:Name="ProviderDetails" Text="NVIDIA: desktop backend; hardware access is disabled by default. Intel and AMD have no implemented transport." TextWrapping="Wrap" Margin="0,8,0,8" />
+      <Button x:Name="EnumerateButton" Content="Refresh endpoints" Click="EnumerateClick" />
+      <ComboBox x:Name="EndpointBox" MinWidth="260" MaxWidth="1000" Margin="0,8,0,8" SelectionChanged="EndpointChanged" />
+      <TextBlock x:Name="EndpointDetails" Text="No endpoint selected." TextWrapping="Wrap" />
+      <TextBlock Text="Image type" Margin="0,20,0,0" />
+      <ComboBox x:Name="ImageKindBox" SelectedIndex="0" MinWidth="260">
+        <ComboBoxItem Content="Samsung firmware package" Tag="samsung_package" />
+        <ComboBoxItem Content="Own SPI dump + backup evidence" Tag="spi_full" />
+      </ComboBox>
+      <Button x:Name="FirmwareButton" Content="Browse firmware" Click="FirmwareClick" Margin="0,12,0,0" />
+      <TextBlock x:Name="FirmwareName" Text="No firmware selected." TextWrapping="Wrap" Margin="0,4,0,8" />
+      <Button x:Name="ManifestButton" Content="Browse backup manifest" Click="ManifestClick" />
+      <TextBlock x:Name="ManifestName" Text="No backup evidence selected." TextWrapping="Wrap" Margin="0,4,0,12" />
+      <TextBlock Text="Download reads the monitor into two backup files. Upload writes the selected firmware after the desktop plan confirmation. Verify compares the selected image with two complete reads." TextWrapping="Wrap" Margin="0,0,0,8" />
+      <StackPanel Orientation="Vertical" HorizontalAlignment="Left">
+        <Button x:Name="DownloadButton" Content="Download backup" Click="DownloadClick" Margin="0,0,8,8" />
+        <Button x:Name="UploadButton" Content="Upload firmware" Click="UploadClick" Margin="0,0,8,8" />
+        <Button x:Name="VerifyButton" Content="Verify image" Click="VerifyClick" Margin="0,0,8,8" />
+      </StackPanel>
+      <TextBlock x:Name="StatusText" Text="Ready. No monitor has been accessed." TextWrapping="Wrap" Margin="0,12,0,8" />
+      <TextBlock x:Name="RequestText" Text="No request yet." TextWrapping="Wrap" />
+      <ProgressBar x:Name="Progress" Minimum="0" Maximum="1" Value="0" Margin="0,8,0,8" />
+      <TextBlock x:Name="ProgressText" Text="Progress is refreshed manually." TextWrapping="Wrap" />
+      <Button x:Name="ResultButton" Content="Refresh result / progress" Click="ResultClick" Margin="0,12,0,8" />
+      <Button x:Name="ExportButton" Content="Export artifacts…" Click="ExportClick" Margin="0,0,0,8" />
+      <TextBox x:Name="ResultText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="120" MaxHeight="400" />
+    </StackPanel>
+  </ScrollViewer>
+</Page>

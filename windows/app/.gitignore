@@ -1,0 +1,12 @@
+/build*/
+/.vs/
+/winrt/Debug/
+/winrt/Release/
+/winrt/x64/
+/winrt/Win32/
+/winrt/AppPackages/
+*.user
+*.suo
+*.pfx
+*.bin
+*.etl
