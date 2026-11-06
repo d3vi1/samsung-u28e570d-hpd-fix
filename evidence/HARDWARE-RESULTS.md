@@ -1,6 +1,6 @@
 # Hardware qualification log
 
-Build: **1005.0-experimental.1**. This log separates programming/boot evidence from the still-pending DisplayPort standby test.
+Build: **1005.0-experimental.1**. This log separates programming/boot evidence, the first standby observation and the remaining qualification limits.
 
 ## Programming and boot — 2026-11-05
 
@@ -23,10 +23,23 @@ Observed firmware-ID response:
 
 The corresponding read request is `51 82 C3 00 7E` to I2C address `0x37`. Static analysis of handler `0x243A53` shows that subcommand 0 copies 18 bytes from initialized application address `0x3303D9` into the response; it contains no configuration-EEPROM call. Querying is performed only in normal operation, after leaving ISP.
 
-## DisplayPort standby/wake
+## DisplayPort standby/wake — 2026-11-06
 
-**Pending.** Successful programming and a live version response do not demonstrate elimination of the standby loop or continuous AUX service.
+The operator connected both monitors to the M2 Max Mac through the CalDigit TS4. The stock unit remained on native DisplayPort; the patched unit used downstream USB-C to DisplayPort, with brightness/contrast 0/0. A checksum-valid C3/0 query identified 1005.0 before capture. No DDC/AUX queries were sent by the capture tools during sleep.
 
-The original Mac/TS4 passive trace used the other monitor. That trace is a useful symptom reference, but it is not a same-unit A/B comparison. The visual observations must also record brightness/contrast: the original trace used 100/50, while this unit was flashed at 0/0.
+The controlled interval begins with `Display state: Off` at **06:38:51.736071 EET** and ends at the keyboard activity tickle at **06:46:01.482288 EET**: **429.746217 seconds**. The operator confirmed that this wake was intentional. It was not a completed ten-minute run.
 
-The next test reconnects the patched unit through the original TS4 native DisplayPort cable/path, captures passive host logs during controlled display sleep, and checks both sustained standby and subsequent wake. No repeated DDC/AUX polling is used during the sleep interval.
+| Observation during that interval | Stock 1004.5 | Patched 1005.0 |
+|---|---:|---:|
+| WindowServer disconnect/reconnect pairs | 47 | 0 |
+| Mean interval between stock disconnects | 9.021928 s | No events |
+| Patched display present, inactive and asleep | — | All 428 samples |
+| Operator's visual observation | Screen/backlight cycles | Only blue standby LED blinks |
+
+Some driver/Thunderbolt messages are absent. The counts above use the complete WindowServer pairs; events from different layers are not added together. Eight complete stock Thunderbolt LOW/HIGH pairs measure 515.445–522.988 ms. These are host timestamps, not electrical HPD measurements.
+
+The patched monitor had one interface termination and WindowServer OUT/IN **during the intentional wake**, at 06:46:02.981330 and 06:46:05.280691, lasting **2.299361 seconds**. This is retained in the result, not counted as a standby failure or omitted. The operator confirmed normal image return without cable or power intervention. After capture stopped, another active DDC query returned the same checksum-valid `m-E5728UMDB-1005.0` identifier.
+
+The capture remained healthy: no stderr errors, 21,869 log records and 428 registry samples in the controlled sleep window. Redacted machine-readable results are in [standby-20261106.json](standby-20261106.json); the stock WindowServer event offsets are in [stock-windowserver-events.csv](stock-windowserver-events.csv).
+
+**Limits:** this compares different physical units and different TS4 output paths, not the same unit before and after the patch. Cached VRR capabilities and brightness/contrast differ. The original symptom trace used the stock unit at 100/50. There is no electrical HPD/AUX analyzer capture, same-unit rollback comparison, repeated wake-cycle qualification or long-term reliability result. Stable standby and successful wake were observed in this specific first test; complete DisplayPort compliance is not established.

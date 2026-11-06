@@ -1,0 +1,19 @@
+{
+  "container_sha256": "3d5cda5eb49c6c0bb0378742aa1767becd31d3b3e85a6c0b9c023bd6ada2dac4",
+  "container_length": 581028,
+  "main_end": 581012,
+  "crc32_offset": 581024,
+  "compressed_length": 435470,
+  "app_length": 1276176,
+  "app_sha256": "a4d6791e80e9050f4800e3fcf9fa2fd1af0f84dac0d99ee0b18f2dc17712d3b0",
+  "main_crc32": "9D87C56E",
+  "inner_crc16": "F774",
+  "outer_crc16": "BBB7",
+  "file_crc32": "B77081C5",
+  "service_sum16": "3899",
+  "validation_scope": "offline container integrity only; no execution or hardware qualification",
+  "zlib_runtime": "1.2.12",
+  "build": "1005.0-experimental.1",
+  "source_sha256": "60e0b2322236b03673d1bd8b5182b36462824baada9a8ec9bff6c724d30d060b",
+  "hardware_tested": false
+}

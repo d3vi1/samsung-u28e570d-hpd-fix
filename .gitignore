@@ -1,4 +1,5 @@
 *.bin
+!firmware/m-E5728UMDB-1005.0-experimental.1.bin
 *.zip
 __pycache__/
 *.pyc

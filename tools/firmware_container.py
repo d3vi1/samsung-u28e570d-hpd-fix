@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline Samsung m-E5728UMDB 1004.5 container verifier/repacker.
+"""Offline Samsung m-E5728UMDB 1004.5 container verifier/unpacker/repacker.
 
 No monitor communication. This validates container integrity, not executable
 behavior or hardware safety. CRCs/layout are matched against the stock image.
@@ -140,17 +140,56 @@ def repack(stock: bytes, app: bytes, *, reuse_original_stream: bool = False) -> 
     return result
 
 
+def unpack(data: bytes, output_directory: Path) -> dict:
+    """Validate before creating a new directory; never overwrite an output."""
+    report, app, compressed = inspect(data)
+    manifest = {
+        "schema_version": 1,
+        "container": report,
+        "files": {
+            "application.bin": {
+                "description": "Verified expanded application body",
+                "length": len(app), "sha256": sha(app),
+                "runtime_base": LOAD + STREAM - MAIN,
+            },
+            "application.deflate": {
+                "description": "Original raw-DEFLATE stream without its six-byte trailer",
+                "length": len(compressed), "sha256": sha(compressed),
+                "container_offset": STREAM,
+            },
+        },
+    }
+    # mkdir is the exclusive destination claim, including existing empty
+    # directories, files and symlinks. A missing parent must be created by
+    # the caller; never silently reuse an existing destination.
+    output_directory.mkdir()
+    for name, content in (("application.bin", app), ("application.deflate", compressed)):
+        with (output_directory / name).open("xb") as output:
+            output.write(content)
+    # Write the manifest last so it is present only after both artifacts were
+    # written. A filesystem failure may leave a partial new directory.
+    with (output_directory / "manifest.json").open("x", encoding="utf-8") as output:
+        output.write(json.dumps(manifest, indent=2) + "\n")
+    return manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("inspect")
     check.add_argument("image", type=Path)
+    extract = sub.add_parser("unpack", help="Validate and extract into a new directory")
+    extract.add_argument("image", type=Path)
+    extract.add_argument("output_directory", type=Path)
     pack = sub.add_parser("repack")
     pack.add_argument("stock", type=Path)
     pack.add_argument("application", type=Path)
     pack.add_argument("output", type=Path)
     pack.add_argument("--reuse-original-stream", action="store_true", help="Exact stock reconstruction check; only works with unchanged application")
     args = parser.parse_args()
+    if args.command == "unpack":
+        print(json.dumps(unpack(args.image.read_bytes(), args.output_directory), indent=2))
+        return
     if args.command == "inspect":
         data = args.image.read_bytes()
     else:

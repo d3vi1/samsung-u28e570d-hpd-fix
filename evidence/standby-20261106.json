@@ -1,0 +1,53 @@
+{
+  "build": "1005.0-experimental.1",
+  "date": "2026-11-06",
+  "sleep_start": "2026-11-06T06:38:51.736071+02:00",
+  "sleep_end_keyboard_activity": "2026-11-06T06:46:01.482288+02:00",
+  "sleep_seconds": 429.746217,
+  "stock": {
+    "firmware": "1004.5",
+    "path": "CalDigit TS4 native DisplayPort",
+    "windowserver_disconnects": 47,
+    "windowserver_reconnect_pairs": 47,
+    "observed_disconnect_period_us": {
+      "count": 46,
+      "min_us": 9011081,
+      "max_us": 9055666,
+      "mean_us": 9021928.43478261
+    }
+  },
+  "patched": {
+    "firmware": "1005.0",
+    "path": "CalDigit TS4 downstream USB-C to DisplayPort",
+    "brightness": 0,
+    "contrast": 0,
+    "windowserver_disconnects": 0,
+    "driver_hpd_events": 0,
+    "coregraphics_sleep_samples": 428,
+    "coregraphics_total_samples": 428,
+    "all_samples_online_inactive_asleep": true
+  },
+  "visual_observation": "Operator reports screen cycling only on stock monitor; patched monitor only blinked its blue standby LED.",
+  "wake": {
+    "cause": "Magic Keyboard activity, confirmed intentional by operator",
+    "operator_normal_image_return": true,
+    "cable_or_power_intervention": false,
+    "patched_windowserver_out": "2026-11-06T06:46:02.981330+02:00",
+    "patched_windowserver_in": "2026-11-06T06:46:05.280691+02:00",
+    "reenumeration_seconds": 2.299361,
+    "post_wake_firmware_query": "m-E5728UMDB-1005.0; checksum-valid C3/0 after capture stopped"
+  },
+  "capture": {
+    "log_stream_early_exit": null,
+    "stderr_empty": true,
+    "controlled_window_log_records": 21869,
+    "controlled_window_registry_samples": 428
+  },
+  "limits": [
+    "Different physical monitors and TS4 output paths; not a same-unit same-cable A/B test.",
+    "Cached VRR capabilities differ; patched monitor tested at brightness/contrast 0/0.",
+    "Some driver/TB messages are absent. WindowServer counts are not added to other reporting layers.",
+    "No electrical HPD/AUX analyzer; no claim of complete DP compliance or exhaustive regression qualification.",
+    "The requested 10-minute interval ended early through intentional keyboard activity; actual duration is reported."
+  ]
+}

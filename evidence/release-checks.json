@@ -1,0 +1,13 @@
+{
+  "date": "2026-11-06",
+  "scope": "Public packaging and documentation additions; no hardware I/O",
+  "build_checks_passed": 7,
+  "container_checks_passed": 9,
+  "unpack_checks_passed": 6,
+  "macos_identifier_helper": "Compiled with -Wall -Wextra; no diagnostics; not executed during this verification",
+  "readme_static_review": "Guard addresses, mailbox ordering, hook/rejoin, EEPROM/timing explanation and CRC details checked against retained evidence; cave offset typo corrected to 0xE7D00",
+  "standby_evidence_review": "Recomputed all counts and 94 CSV rows from capture; no discrepancy",
+  "relative_markdown_links": "All existing local relative links resolve",
+  "candidate_sha256": "3d5cda5eb49c6c0bb0378742aa1767becd31d3b3e85a6c0b9c023bd6ada2dac4",
+  "hardware_results": "See HARDWARE-RESULTS.md separately"
+}

@@ -3,15 +3,22 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <errno.h>
 typedef CFTypeRef AV;
-int main(void) { @autoreleasepool {
+int main(int argc,char **argv) { @autoreleasepool {
+ uint64_t selected=0;
+ if(argc!=1){
+  if(argc!=3||strcmp(argv[1],"--registry-id")){fprintf(stderr,"Usage: read_firmware_id [--registry-id ID]\n");return 2;}
+  char *end=NULL;errno=0;selected=strtoull(argv[2],&end,0);
+  if(errno||!selected||!end||*end){fprintf(stderr,"Invalid registry ID.\n");return 2;}
+ }
  CGDirectDisplayID ids[32]; uint32_t n=0; unsigned external=0;
  if(CGGetOnlineDisplayList(32,ids,&n)!=kCGErrorSuccess)return 2;
  for(uint32_t i=0;i<n;i++) if(!CGDisplayIsBuiltin(ids[i])){
   external++;
   if(CGDisplayIsAsleep(ids[i])||!CGDisplayIsActive(ids[i])){fprintf(stderr,"Refusing DDC while external display is asleep/inactive.\n");return 2;}
  }
- if(external!=1){fprintf(stderr,"Expected exactly one active external display.\n");return 2;}
+ if(!external||(!selected&&external!=1)){fprintf(stderr,"Expected exactly one active external display, or an explicit registry ID.\n");return 2;}
  void *h=dlopen("/System/Library/Frameworks/IOKit.framework/IOKit",RTLD_NOW);
  if(!h)return 2;
  AV(*create)(CFAllocatorRef,io_service_t)=dlsym(h,"IOAVServiceCreateWithService");
@@ -21,7 +28,7 @@ int main(void) { @autoreleasepool {
  io_iterator_t it=0; IOReturn e=IOServiceGetMatchingServices(kIOMainPortDefault,IOServiceMatching("DCPAVServiceProxy"),&it);
  if(e){dlclose(h);return 2;}
  io_service_t service=0,s=0;unsigned count=0;
- while((s=IOIteratorNext(it))){count++;if(!service)service=s;else IOObjectRelease(s);}
+ while((s=IOIteratorNext(it))){uint64_t id=0;IORegistryEntryGetRegistryEntryID(s,&id);if(!selected||id==selected){count++;if(!service)service=s;else IOObjectRelease(s);}else IOObjectRelease(s);}
  IOObjectRelease(it);
  if(count!=1){if(service)IOObjectRelease(service);fprintf(stderr,"Expected exactly one DCPAVServiceProxy.\n");dlclose(h);return 2;}
  uint64_t rid=0;IORegistryEntryGetRegistryEntryID(service,&rid);

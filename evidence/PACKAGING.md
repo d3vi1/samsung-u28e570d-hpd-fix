@@ -49,19 +49,21 @@ The observed `0xBBB7` outer CRC remains constant in the three supplied firmware 
 
 ## Tool and validation
 
-`container.py` pins the supported official input SHA-256, accepts only the original body length, validates every field above, and can rebuild the container from a caller-supplied modified body. It never modifies the supplied stock image.
+[`tools/firmware_container.py`](../tools/firmware_container.py) pins the supported official repack input SHA-256, accepts only the original body length, validates every field above, and can rebuild the container from a caller-supplied modified body. It never modifies the supplied stock image.
 
 ```sh
-python3 work/1005-packaging/container.py inspect work/samsung/stock-1004.5.bin
-python3 work/1005-packaging/test_container.py
-python3 work/1005-packaging/container.py repack work/samsung/stock-1004.5.bin PATCHED_APP OUTPUT.bin
+python3 tools/firmware_container.py inspect path/to/stock-1004.5.bin
+python3 tools/firmware_container.py unpack path/to/stock-1004.5.bin unpacked-stock
+python3 tests/test_container.py path/to/stock-1004.5.bin
+python3 tests/test_unpack.py path/to/stock-1004.5.bin firmware/m-E5728UMDB-1005.0-experimental.1.bin
+python3 tools/firmware_container.py repack path/to/stock-1004.5.bin PATCHED_APP OUTPUT.bin
 ```
 
 Nine checks passed. Reusing the original compressed stream reconstructs the official image byte for byte. Recompression preserves the exact expanded body, bootstrap and PM51, and is deterministic with the tested zlib 1.2.12. Its unchanged-body container is 580,972 bytes, SHA-256 `10a017e52a2a160dbcb386d90ba1971649814d08c2bc3855b7737c2cdfda92de`.
 
-The tool rejects growth past `0x90000`, the next 64 KiB boundary after the original container. This avoids extending into a new 64 KiB region, but is not proof of physical flash ownership or of a particular flasher's erase behavior. The razvan-pc owner must construct any full flash candidate against the exact current backup and preserve unrelated flash content. No personal full-flash backup belongs in a community patch distribution.
+The tool rejects growth past `0x90000`, the next 64 KiB boundary after the original container. This avoids extending into a new 64 KiB region, but is not proof of physical flash ownership or of a particular flasher's erase behavior. A full flash candidate must be constructed against the exact current unit's backup and preserve unrelated flash content. No personal full-flash backup belongs in a community patch distribution.
 
-The four checksum matches, exact reconstruction and decompression establish format correctness. They do not establish that the old on-device decompressor accepts every stream emitted by the newer zlib library, nor that a modified application preserves AUX or HPD behavior. Those remain separate qualification gates.
+The four checksum matches, exact reconstruction and decompression establish format correctness. They do not establish that the old on-device decompressor accepts every stream emitted by the newer zlib library, nor that a modified application preserves AUX or HPD behavior. The later boot and standby observations for the exact published candidate are recorded separately in [HARDWARE-RESULTS.md](HARDWARE-RESULTS.md).
 
 ## Corroborating public code
 
