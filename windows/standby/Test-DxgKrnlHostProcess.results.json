@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "test": "Test-DxgKrnlHostProcess",
+  "scope": "Extracted host process functions with an inline dummy controller only.",
+  "totalCasesPassed": 8,
+  "runs": [
+    {
+      "test": "Test-DxgKrnlHostProcess",
+      "parentPowerShellVersion": "5.1.19041.6456",
+      "hostScriptSha256": "c7576493df336226711ff276a625fc83a7d684ccc7332ed9912d37e79be7dc9f",
+      "passed": 4,
+      "cases": [
+        {
+          "case": "exit0",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        },
+        {
+          "case": "exit7",
+          "exitCode": 7,
+          "accepted": false,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        },
+        {
+          "case": "large-exit0",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 131114,
+          "stderrChars": 131114,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        },
+        {
+          "case": "large-exit7",
+          "exitCode": 7,
+          "accepted": false,
+          "stdoutChars": 131114,
+          "stderrChars": 131114,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        }
+      ],
+      "hostExecuted": false,
+      "etwAccessed": false,
+      "displayAccessed": false,
+      "uacRequested": false,
+      "temporaryFixturesRemoved": true
+    },
+    {
+      "test": "Test-DxgKrnlHostProcess",
+      "parentPowerShellVersion": "7.6.5",
+      "hostScriptSha256": "c7576493df336226711ff276a625fc83a7d684ccc7332ed9912d37e79be7dc9f",
+      "passed": 4,
+      "cases": [
+        {
+          "case": "exit0",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        },
+        {
+          "case": "exit7",
+          "exitCode": 7,
+          "accepted": false,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        },
+        {
+          "case": "large-exit0",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 131114,
+          "stderrChars": 131114,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        },
+        {
+          "case": "large-exit7",
+          "exitCode": 7,
+          "accepted": false,
+          "stdoutChars": 131114,
+          "stderrChars": 131114,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "passed": true
+        }
+      ],
+      "hostExecuted": false,
+      "etwAccessed": false,
+      "displayAccessed": false,
+      "uacRequested": false,
+      "temporaryFixturesRemoved": true
+    }
+  ]
+}

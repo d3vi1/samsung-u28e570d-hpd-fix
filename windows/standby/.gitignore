@@ -1,0 +1,15 @@
+runs/
+captures/
+artifacts/
+*.etl
+*.evtx
+*.jsonl
+session.json
+ready.json
+stopped.json
+host-error.txt
+dxgkrnl-*.json
+dxgkrnl-*.xml
+dxgkrnl-*.txt
+etw-stop.request
+topology-*.json
