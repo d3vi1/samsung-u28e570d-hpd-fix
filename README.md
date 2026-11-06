@@ -74,6 +74,12 @@ The transport is in [NvidiaMstarRead.cs](windows/NvidiaMstarRead.cs) and [Nvidia
 
 The successful first programming run changed **109 sectors of 4 KiB**, verified each sector, wrote the header sector last, then verified the complete 2 MiB target and unchanged flash status. The package/bootstrap distinction and rollback treatment matter: replacing a longer candidate with a shorter stock package must also restore the tail from the same unit's backup. The code does not promise recovery from power loss or lost ISP access.
 
+### Windows standby capture tools
+
+The [Windows capture tools](windows/standby/README.md) record passive power/display/device notifications, with an optional DxgKrnl ETW trace and separate before/after topology snapshots. Display-off is a separate explicit action. The tools do not poll DDC during standby.
+
+The process supervisor and atomic status-record publication were reviewed and tested with dummy processes and temporary files in PowerShell 5.1 and 7. The [preparation report](windows/standby/PREPARATION-RESULT.md) distinguishes those tests from hardware evidence: **no Windows/HDMI standby interval has been executed**, and the corrected complete live ETW workflow remains unqualified.
+
 ## Linux flashers using the same MStar ISP protocol
 
 The shared protocol uses seven-bit I²C address **`0x49`** (wire address bytes `0x92`/`0x93`), ASCII **`MSTAR`** to enter ISP, `0x10` followed by an SPI command, `0x11` before reading, `0x12` to finish the SPI transaction and `0x24` to exit/reset. SPI commands then include read `0x03`, write-enable `0x06`, page program `0x02` and status `0x05`. SERDB at seven-bit address `0x59` is a separate debug interface; identical opcode bytes there do not have the same meaning.
