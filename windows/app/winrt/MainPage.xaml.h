@@ -6,7 +6,7 @@ public:
     MainPage();
 private:
     Windows::Storage::StorageFile^ firmware_;
-    Windows::Storage::StorageFile^ evidence_;
+    Windows::Storage::StorageFolder^ evidenceFolder_;
     Windows::Storage::StorageFolder^ requestFolder_;
     Platform::String^ requestId_;
     Platform::String^ requestAction_;

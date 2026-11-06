@@ -144,7 +144,6 @@ std::wstring freshRunPath(const std::wstring& folder, bool mock) {
          << L"-" << GetCurrentProcessId();
     return folder + ((folder.back() == L'\\' || folder.back() == L'/') ? L"" : L"\\") + leaf.str();
 }
-std::string utf8File(const Bytes& bytes) { return std::string(bytes.begin(),bytes.end()); }
 
 DWORD WINAPI workerMain(LPVOID parameter) {
     std::unique_ptr<Work> work(static_cast<Work*>(parameter));
@@ -189,8 +188,9 @@ DWORD WINAPI workerMain(LPVOID parameter) {
                 } else {
                     if (input.size() != SpiCapacity) throw Error("A full SPI backup must contain exactly 2 MiB.");
                     if (work->evidencePath.empty()) throw Error("Choose the matching backup manifest for an own SPI dump.");
-                    evidence = parseBackupManifest(utf8File(readLocalFile(work->evidencePath,1024 * 1024)));
+                    evidence = loadLocalBackupEvidence(work->evidencePath);
                     evidencePointer = &evidence;
+                    postText(app,EventKind::Log,"Backup bundle validated: both full read files and all 64 SFDP bytes were reopened and compared.");
                 }
             }
             if (InterlockedCompareExchange(&app.cancellation,0,0)) throw Error("Cancelled before opening a device.");

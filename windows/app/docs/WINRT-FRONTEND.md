@@ -2,15 +2,15 @@
 
 `winrt/MonitorFirmwareFrontend.sln` is a separate C++/CX Windows Store application targeting Visual Studio 2012 (`v110`) and Windows SDK 8.0, with Win32 and x64 configurations. It uses Windows.UI.Xaml, not WinUI 3 or XAML Islands. The C++14 firmware engine remains in the desktop broker; no engine ABI, NVAPI library or native display API is linked into the AppContainer application.
 
-**Status: source prepared and statically checked only.** The available environment does not have the v110 compiler, Windows 8 SDK or XAML compiler. The project has not been compiled, deployed or run, and compatibility with any specific Windows 8 or later installation has not been demonstrated. XML well-formedness and the checks below are not SDK schema validation. The manifest's required `OSMaxVersionTested` field is a target declaration, not a statement of completed runtime testing.
+**Status: x86 XAML generation, compilation, linking and unsigned APPX packaging passed on Windows 10.** The build used Microsoft Visual Studio 2012 Express (`v110`) and Windows SDK 8.0 payloads extracted from the official Microsoft ISO into the workspace. No installer, elevation, registry change or GAC registration was used. The application has not been installed or run; deployment on Windows 8, UI behavior and the AppContainer-to-desktop round trip remain unvalidated. The x64 project configuration has not been built. The manifest's required `OSMaxVersionTested` field is a target declaration, not a statement of completed runtime testing. See [the relocated legacy build procedure](LEGACY-BUILD.md).
 
 ## User flow
 
 The initial mode is **Mock**, with NVIDIA selected as the simulated provider. Intel and AMD appear as unavailable providers. Provider metadata comes from the broker response; it does not authorize access by itself. Hardware mode requires explicit selection and a desktop broker built with hardware access enabled.
 
 1. Select a mode and click **Refresh endpoints**. The frontend submits an enumeration request and opens the desktop bridge. Return to the frontend, click **Refresh result / progress**, and select a returned endpoint deliberately.
-2. **Download backup** asks the broker to perform its complete double-read backup. **Browse firmware** selects a `.bin`; **Browse backup manifest** selects the evidence needed for an own SPI dump. The image-kind selector distinguishes a Samsung package from a full SPI dump.
-3. **Upload firmware** and **Verify image** copy those inputs into a new request. Upload requires the separate desktop plan confirmation, including in mock mode. No request field bypasses that confirmation or the core policy.
+2. **Download backup** asks the broker to perform its complete double-read backup. **Browse firmware** selects a `.bin`. For an own SPI dump, **Browse backup bundle folder** selects the folder containing `backup.json`, both referenced SPI read files and the referenced SFDP capture. Select the actual artifact folder when the exported bundle contains an outer directory. The image-kind selector distinguishes a Samsung package from a full SPI dump.
+3. **Upload firmware** and **Verify image** copy those inputs into a new request and check their lengths and hashes. A manifest alone is insufficient for an own-dump request. Upload requires the separate desktop plan confirmation, including in mock mode. No request field bypasses that confirmation or the core policy.
 4. Refresh manually to read a progress snapshot or the final response. Launch success, a progress counter and return to the app are never treated as operation completion. The frontend does not poll, cancel hardware work or automatically retry requests.
 5. After a final response, **Export artifacts** uses FolderPicker to copy `artifacts/` and `response.json` into a new `monitorfw-<request-id>` directory. Existing files are not overwritten. If enumeration or an early failure produced no artifact directory, the final response can still be exported. An interrupted/failed export may leave a partial export directory; choose another destination to retry.
 
@@ -20,7 +20,11 @@ The last request identity and context are retained in LocalSettings before URI a
 
 The package identity is `Name="MonitorFirmware.WinRT"`, `Publisher="CN=MonitorFirmware Development"`. After deployment, the desktop bridge must be configured for the actual PackageFamilyName. Registration is separate and explicit; building or opening this project does not register a protocol, request elevation or launch a broker.
 
-Each request uses a fresh lowercase UUID v4 under the application's `LocalFolder/requests/<uuid>/`. Picker-selected files are copied with fail-if-exists semantics to `input.bin` and, for own-dump operations, `backup-evidence.json`. SHA256 is calculated from the copied input. Inputs are limited to 2 MiB and backup evidence to 64 KiB. Only after the copies and hash are complete is `request.pending` written and renamed to `request.json`; the app then calls `Launcher.LaunchUriAsync` with `monitorfw-bridge://request/<uuid>` on the UI thread.
+Each request uses a fresh lowercase UUID v4 under the application's `LocalFolder/requests/<uuid>/`. The selected image is copied to `input.bin` with fail-if-exists semantics and is limited to 2 MiB.
+
+For an own SPI dump, FolderPicker grants access to the selected bundle folder and its files. The frontend copies `backup.json` to `backup-evidence.json` at the request root, with a 64 KiB manifest limit. It then copies the files named by `reads[0].file`, `reads[1].file` and `flash.sfdp_file` into `request/evidence/`. The two read files must each be exactly 2 MiB; SFDP must be exactly 64 bytes. All three names must be distinct ignoring case, 1–255 ASCII characters, start with an alphanumeric character and otherwise contain only alphanumerics, `.`, `_` or `-`. Paths, trailing dots and reserved Windows device names are rejected. Selecting a manifest through a single-file picker would not grant access to its siblings, so this flow requires the folder picker.
+
+The frontend checks SHA256 from each copied evidence file against the copied manifest, requires matching read hashes, and checks the copied input against that read hash. Only after all copies and checks succeed is `request.pending` written and renamed to `request.json`; the app then calls `Launcher.LaunchUriAsync` with `monitorfw-bridge://request/<uuid>` on the UI thread. A failed preparation leaves no published request or automatic broker launch. The broker independently reloads and fully validates the manifest, both read files and SFDP, including actual byte equality, monitor binding, flash status/profile and firmware policy. Frontend checks do not replace backend validation.
 
 The request object has these fields, with no filesystem paths supplied in JSON:
 
@@ -45,7 +49,14 @@ The final file is `response.json`, with schema `monitorfw.response.v1`, matching
 
 ## Building and validation
 
-Use Visual Studio 2012 with the Windows 8 SDK and the C++ Windows Store tools. Open the solution and build a Win32 or x64 configuration. The project references Microsoft.VCLibs 11.0 and disables automatic package signing. Deployment requires the developer to configure appropriate package signing and Windows deployment prerequisites separately; no certificate or signing key is included. The desktop CMake build does not compile this frontend. ARM/Windows RT desktop-broker operation is not supported by this project.
+Use Visual Studio 2012 with the Windows 8 SDK and the C++ Windows Store tools, or follow [LEGACY-BUILD.md](LEGACY-BUILD.md) for the demonstrated workspace-local toolchain. The successful build used `winrt/Build-Relocated.ps1` with `-CreateUnsignedPackage`, targeting Win32. The project references Microsoft.VCLibs 11.0 and disables automatic package signing. Deployment requires the developer to configure appropriate package signing and Windows deployment prerequisites separately; no certificate or signing key is included. The desktop CMake build does not compile this separate C++/CX frontend. ARM/Windows RT desktop-broker operation is not supported by this project.
+
+The validated build artifacts have these SHA256 values:
+
+| Artifact | SHA256 |
+| --- | --- |
+| `MonitorFirmwareFrontend.exe` | `4ff7fa3f6fbf59a2af74077c3cc7ccf81759c69ee56544d24bda321fbd3cf359` |
+| Unsigned Win32 APPX | `4fa0bb863b44aeb9d37732317b15deaf450038329d4643192b561c6b722f3230` |
 
 Run the static checks without launching the app or broker:
 
@@ -53,7 +64,7 @@ Run the static checks without launching the app or broker:
 powershell -NoProfile -File .\winrt\Test-WinRtStatic.ps1
 ```
 
-The checks parse project/manifest/XAML XML, resolve declared source/asset files, compare XAML event handlers with source declarations, check the public package identity, mock default, protocol fields, size bounds, no-overwrite calls and PNG dimensions. They do not compile C++/CX, validate XAML types, check SDK schemas, register a URI, install an Appx, exercise UI behavior or access a monitor. Build and mock end-to-end tests with the actual SDK remain required before calling this frontend runnable.
+The 25 static checks passed in Windows PowerShell 5.1 and PowerShell 7. They parse project/manifest/XAML XML, resolve declared source/asset files, compare XAML event handlers with source declarations, and check the package identity, mock default, protocol fields, bundle-copy ordering, bounds, no-overwrite calls and PNG dimensions. The static script does not compile or launch anything; the successful XAML/compiler/linker/packager run is separate evidence. No validation performed deployment, URI registration, a frontend-to-broker runtime round trip or monitor access. Mock end-to-end testing from an installed frontend, including on Windows 8, remains required.
 
 ## API references and scope
 

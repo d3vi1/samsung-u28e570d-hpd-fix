@@ -93,6 +93,78 @@ std::wstring checkedLeaf(const std::string& leaf) {
         throw Error("Reserved Windows artifact name");
     return std::wstring(leaf.begin(),leaf.end());
 }
+class LockedBundleDirectory {
+    std::vector<std::unique_ptr<Handle>> handles_;
+public:
+    std::wstring path;
+    explicit LockedBundleDirectory(const std::wstring& input) : path(fullPath(input)) {
+        std::replace(path.begin(),path.end(),L'/',L'\\');
+        if (path.size() >= MAX_PATH || path.find(L':',2) != std::wstring::npos)
+            throw Error("Backup directory must be a bounded ordinary local path");
+        for (std::size_t end=3; end<=path.size(); ++end) {
+            if (end!=path.size() && path[end]!=L'\\') continue;
+            const std::wstring component=path.substr(0,end);
+            std::unique_ptr<Handle> handle(new Handle(CreateFileW(component.c_str(),FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ|FILE_SHARE_WRITE,0,OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,0)));
+            if (handle->get()==INVALID_HANDLE_VALUE) fail("Lock backup directory");
+            BY_HANDLE_FILE_INFORMATION info={};
+            if (!GetFileInformationByHandle(handle->get(),&info)) fail("Inspect backup directory");
+            if (GetFileType(handle->get())!=FILE_TYPE_DISK || !(info.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) ||
+                (info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT))
+                throw Error("Backup path contains a non-directory or reparse point");
+            // No FILE_SHARE_DELETE: the validated path components cannot be
+            // renamed/replaced while the bundle's file handles are being read.
+            handles_.push_back(std::move(handle));
+        }
+    }
+};
+class LocalBundleReader {
+    struct FileId { DWORD volume, high, low; };
+    std::vector<FileId> identities_;
+    std::vector<std::unique_ptr<Handle>> files_;
+public:
+    LockedBundleDirectory manifestDirectory;
+    LockedBundleDirectory artifactDirectory;
+    LocalBundleReader(const std::wstring& manifestParent,const std::wstring& artifactParent)
+        : manifestDirectory(manifestParent),artifactDirectory(artifactParent) {}
+    Bytes read(const LockedBundleDirectory& directory,const std::string& leaf,std::uint32_t maximum) {
+        if (!isSafeBackupArtifactLeaf(leaf)) throw Error("Unsafe backup artifact filename");
+        const std::wstring path=join(directory.path,std::wstring(leaf.begin(),leaf.end()));
+        if (path.size()>=MAX_PATH) throw Error("Backup artifact path exceeds the reviewed Windows path limit");
+        std::unique_ptr<Handle> file(new Handle(CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,
+            0,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_SEQUENTIAL_SCAN,0)));
+        if (file->get()==INVALID_HANDLE_VALUE) fail("Open backup artifact");
+        BY_HANDLE_FILE_INFORMATION info={};
+        if (!GetFileInformationByHandle(file->get(),&info)) fail("Inspect backup artifact");
+        if (GetFileType(file->get())!=FILE_TYPE_DISK ||
+            (info.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)))
+            throw Error("Backup artifact is not an ordinary disk file");
+        const FileId identity={info.dwVolumeSerialNumber,info.nFileIndexHigh,info.nFileIndexLow};
+        for (const FileId& previous : identities_)
+            if (previous.volume==identity.volume && previous.high==identity.high && previous.low==identity.low)
+                throw Error("Backup artifacts must be distinct files, not aliases or hard links to one file");
+        const std::uint64_t length=(std::uint64_t(info.nFileSizeHigh)<<32)|info.nFileSizeLow;
+        if (length>maximum) throw Error("Backup artifact exceeds its allowed size");
+        Bytes data(static_cast<std::size_t>(length));
+        std::size_t offset=0;
+        while (offset<data.size()) {
+            const DWORD count=static_cast<DWORD>(std::min<std::size_t>(1024*1024,data.size()-offset));
+            DWORD read=0;
+            if (!ReadFile(file->get(),data.data()+offset,count,&read,0)) fail("Read backup artifact");
+            if (!read) throw Error("Backup artifact ended before its declared size");
+            offset+=read;
+        }
+        std::uint8_t extra=0; DWORD read=0;
+        if (!ReadFile(file->get(),&extra,1,&read,0)) fail("Check backup artifact end");
+        if (read) throw Error("Backup artifact grew during reading");
+        identities_.push_back(identity);
+        // Retain all source handles without write/delete sharing until all
+        // independent artifacts have been read and the core has checked them.
+        files_.push_back(std::move(file));
+        return data;
+    }
+};
 void atomicNew(const std::wstring& directory, const std::wstring& leaf, const Bytes& bytes) {
     const std::wstring destination = join(directory,leaf);
     std::wstring temporary;
@@ -227,6 +299,21 @@ Bytes readLocalFile(const std::wstring& path, std::uint32_t maximumBytes) {
     if (!ReadFile(file.get(),&extra,1,&extraRead,0)) fail("Check input file end");
     if (extraRead!=0) throw Error("Input file grew during reading");
     return result;
+}
+BackupEvidence loadLocalBackupEvidence(const std::wstring& manifestPath,const std::wstring& artifactDirectory) {
+    std::wstring canonical=fullPath(manifestPath);
+    std::replace(canonical.begin(),canonical.end(),L'/',L'\\');
+    const std::size_t separator=canonical.find_last_of(L'\\');
+    if (separator==std::wstring::npos || separator+1>=canonical.size()) throw Error("Invalid backup manifest path");
+    const std::wstring parent=canonical.substr(0,separator==2?3:separator);
+    const std::string leaf=narrowUtf8(canonical.substr(separator+1));
+    const std::shared_ptr<LocalBundleReader> reader(new LocalBundleReader(parent,
+        artifactDirectory.empty()?parent:artifactDirectory));
+    const Bytes manifest=reader->read(reader->manifestDirectory,leaf,1024*1024);
+    return loadBackupEvidence(std::string(manifest.begin(),manifest.end()),
+        [reader](const std::string& name,std::uint32_t maximum) {
+            return reader->read(reader->artifactDirectory,name,maximum);
+        });
 }
 std::string narrowUtf8(const std::wstring& text) {
     if (text.empty()) return std::string();

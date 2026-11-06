@@ -13,6 +13,24 @@ Bytes bytes(const std::string& s){return Bytes(s.begin(),s.end());}
 Bytes slice(const Bytes& b,std::size_t p,std::size_t n){require(p<=b.size() && n<=b.size()-p,"Image range outside buffer");return Bytes(b.begin()+p,b.begin()+p+n);}
 std::string hex(const Bytes& b){std::ostringstream s;s<<std::hex<<std::setfill('0');for(auto v:b)s<<std::setw(2)<<unsigned(v);return s.str();}
 bool hashText(const std::string& s){return s.size()==64 && s.find_first_not_of("0123456789abcdef")==std::string::npos;}
+bool asciiAlnum(char c){return (c>='A' && c<='Z') || (c>='a' && c<='z') || (c>='0' && c<='9');}
+std::string foldedLeaf(std::string s){for(char& c:s)if(c>='A' && c<='Z')c=char(c-'A'+'a');return s;}
+bool rfc3339(const std::string& s){
+    if(s.size()<20 || s[4]!='-' || s[7]!='-' || (s[10]!='T' && s[10]!='t') || s[13]!=':' || s[16]!=':')return false;
+    auto number=[&](std::size_t at,std::size_t count){int value=0;for(std::size_t i=0;i<count;++i){char c=s[at+i];if(c<'0'||c>'9')return -1;value=value*10+c-'0';}return value;};
+    const int year=number(0,4),month=number(5,2),day=number(8,2),hour=number(11,2),minute=number(14,2),second=number(17,2);
+    if(year<0 || month<1 || month>12 || day<1 || hour<0 || hour>23 || minute<0 || minute>59 || second<0 || second>60)return false;
+    const int days[]={31,28,31,30,31,30,31,31,30,31,30,31};
+    const int maxDay=days[month-1]+(month==2 && year%4==0 && (year%100!=0 || year%400==0)?1:0);
+    if(day>maxDay)return false;
+    std::size_t p=19;if(s[p]=='.'){const std::size_t start=++p;while(p<s.size() && s[p]>='0' && s[p]<='9')++p;if(p==start || p==s.size())return false;}
+    if((s[p]=='Z' || s[p]=='z') && p+1==s.size())return second<60 || (hour==23 && minute==59);
+    if((s[p]!='+' && s[p]!='-') || s.size()-p!=6 || s[p+3]!=':')return false;
+    const int offsetHour=number(p+1,2),offsetMinute=number(p+4,2);
+    if(offsetHour<0 || offsetHour>23 || offsetMinute<0 || offsetMinute>59)return false;
+    const int offset=(offsetHour*60+offsetMinute)*(s[p]=='+'?1:-1);
+    return second<60 || ((hour*60+minute-offset+1440)%1440==1439);
+}
 std::string utcNow(){std::time_t now=std::time(0);std::tm* tm=std::gmtime(&now);char out[32]={0};if(tm)std::strftime(out,sizeof(out),"%Y-%m-%dT%H:%M:%SZ",tm);return out;}
 void addError(Result& r,const std::string& s){if(!r.error.empty())r.error+="; ";r.error+=s;}
 std::string identityJson(const MonitorIdentity& m){
@@ -20,6 +38,13 @@ std::string identityJson(const MonitorIdentity& m){
       <<",\"edid_serial\":"<<jsonQuote(m.serial)<<",\"edid_sha256\":"<<jsonQuote(m.edidSha256)
       <<",\"transport_locator\":"<<jsonQuote(m.transportLocator)<<",\"ambiguous\":"<<(m.serialAmbiguous?"true":"false")
       <<",\"ambiguity_reason\":"<<jsonQuote(m.ambiguityReason)<<"}";return s.str();
+}
+std::string evidenceMetadata(const BackupEvidence& e){
+    std::ostringstream s;s<<jsonQuote(e.monitor.model)<<':'<<identityJson(e.monitor)<<':'<<jsonQuote(e.imageSha256)
+      <<':'<<jsonQuote(e.flashJedecHex)<<':'<<jsonQuote(e.sfdpSha256)<<':'<<jsonQuote(e.createdUtc)
+      <<':'<<jsonQuote(e.firstReadFile)<<':'<<jsonQuote(e.secondReadFile)<<':'<<jsonQuote(e.sfdpFile)
+      <<':'<<jsonQuote(e.statusBefore)<<':'<<jsonQuote(e.statusAfter)<<':'<<e.capacity<<':'<<e.programmingChunkSize<<':'<<e.readsEqual;
+    return s.str();
 }
 void validateBackup(const Backup& b){
     require(b.persisted && b.image.size()==SpiCapacity,"A persisted full double-read backup is required");
@@ -64,22 +89,47 @@ std::string backupManifest(const Backup& b){
 }
 BackupEvidence parseBackupManifest(const std::string& text){
     Json root=JsonReader(text).parse();require(root.at("schema").text()=="monitorfw.backup.v1" && root.at("image_kind").text()=="spi_full","Not a full SPI backup manifest");
-    BackupEvidence e;e.monitor.model=root.at("model").text();const Json& id=root.at("identity");
+    BackupEvidence e;e.monitor.model=root.at("model").text();require(!e.monitor.model.empty(),"Missing firmware model");
+    e.createdUtc=root.at("created_utc").text();require(rfc3339(e.createdUtc),"created_utc must be an RFC3339 date-time");
+    const Json& coding=root.at("coding_eeprom");require(!coding.at("available").flag() && !coding.at("reason").text().empty(),"Coding EEPROM must remain unavailable with a reason");
+    const Json& id=root.at("identity");
     e.monitor.manufacturer=id.at("manufacturer").text();const auto product=id.at("product_code").integer();require(product<=65535,"Product code overflow");e.monitor.productCode=std::uint16_t(product);
+    require(e.monitor.manufacturer.size()==3 && e.monitor.manufacturer.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ")==std::string::npos,"Invalid monitor manufacturer");
     e.monitor.serial=id.at("edid_serial").text();e.monitor.edidSha256=id.at("edid_sha256").text();e.monitor.transportLocator=id.at("transport_locator").text();
-    auto ambiguous=id.object.find("ambiguous");e.monitor.serialAmbiguous=ambiguous!=id.object.end() && ambiguous->second.flag();
-    auto reason=id.object.find("ambiguity_reason");if(reason!=id.object.end())e.monitor.ambiguityReason=reason->second.text();
+    e.monitor.serialAmbiguous=id.at("ambiguous").flag();e.monitor.ambiguityReason=id.at("ambiguity_reason").text();
     require(hashText(e.monitor.edidSha256) && !e.monitor.transportLocator.empty(),"Missing exact monitor binding");
     const Json& flash=root.at("flash");const auto capacity=flash.at("capacity").integer();require(capacity==SpiCapacity,"Unsupported backup capacity");e.capacity=std::uint32_t(capacity);
     require(flash.at("sector_size").integer()==SectorSize && flash.at("page_size").integer()==256,"Unsupported backup geometry");
-    e.flashJedecHex=flash.at("jedec").text();e.sfdpSha256=flash.at("sfdp_sha256").text();require(hashText(e.sfdpSha256) && flash.at("sfdp_bytes").integer()==64,"Expected a hash of 64 actual SFDP bytes");
-    require(flash.at("status_before").text()==flash.at("status_after").text(),"Backup flash status changed");
+    e.flashJedecHex=flash.at("jedec").text();require(e.flashJedecHex=="ef4015","Unsupported backup JEDEC identity");
+    e.sfdpSha256=flash.at("sfdp_sha256").text();require(hashText(e.sfdpSha256) && flash.at("sfdp_bytes").integer()==64,"Expected a hash of 64 actual SFDP bytes");
+    e.sfdpFile=flash.at("sfdp_file").text();require(isSafeBackupArtifactLeaf(e.sfdpFile),"Unsafe SFDP artifact leaf");
+    require(flash.at("programming_chunk_size").integer()==32,"Unsupported programming chunk size");e.programmingChunkSize=32;
+    e.statusBefore=flash.at("status_before").text();e.statusAfter=flash.at("status_after").text();
+    require((e.statusBefore=="0000" || e.statusBefore=="000260") && e.statusBefore==e.statusAfter,"Unsupported or changed backup flash status");
     const Json& reads=root.at("reads");require(reads.type==Json::Array && reads.array.size()==2,"Exactly two independent backup reads are required");
     e.imageSha256=reads.array[0].at("sha256").text();
     require(hashText(e.imageSha256) && e.imageSha256==reads.array[1].at("sha256").text(),"Backup read hashes disagree");
-    for(const Json& read:reads.array)require(read.at("bytes").integer()==SpiCapacity && !read.at("file").text().empty(),"Incomplete backup read");
-    require(reads.array[0].at("file").text()!=reads.array[1].at("file").text(),"Independent read files must be distinct");
+    for(const Json& read:reads.array)require(read.at("bytes").integer()==SpiCapacity && isSafeBackupArtifactLeaf(read.at("file").text()),"Incomplete backup read or unsafe artifact leaf");
+    e.firstReadFile=reads.array[0].at("file").text();e.secondReadFile=reads.array[1].at("file").text();
+    require(foldedLeaf(e.firstReadFile)!=foldedLeaf(e.secondReadFile) && foldedLeaf(e.firstReadFile)!=foldedLeaf(e.sfdpFile) && foldedLeaf(e.secondReadFile)!=foldedLeaf(e.sfdpFile),"All backup artifact leaves must be distinct");
     e.readsEqual=root.at("reads_equal").flag();require(e.readsEqual,"Backup reads are not verified equal");return e;
+}
+bool isSafeBackupArtifactLeaf(const std::string& leaf){
+    if(leaf.empty() || leaf.size()>255 || !asciiAlnum(leaf[0]) || leaf.back()=='.')return false;
+    for(char c:leaf)if(!asciiAlnum(c) && c!='.' && c!='_' && c!='-')return false;
+    const std::string stem=foldedLeaf(leaf.substr(0,leaf.find('.')));
+    if(stem=="con" || stem=="prn" || stem=="aux" || stem=="nul")return false;
+    return !(stem.size()==4 && (stem.substr(0,3)=="com" || stem.substr(0,3)=="lpt") && stem[3]>='1' && stem[3]<='9');
+}
+bool BackupEvidence::artifactsValidated()const{return !validatedMetadata_.empty() && validatedMetadata_==evidenceMetadata(*this) && validatedSfdp_.size()==64 && sha256(validatedSfdp_)==sfdpSha256;}
+BackupEvidence loadBackupEvidence(const std::string& text,const BackupArtifactReader& reader){
+    BackupEvidence e=parseBackupManifest(text);require(bool(reader),"A backup artifact reader is required");
+    const Bytes first=reader(e.firstReadFile,SpiCapacity);require(first.size()==SpiCapacity && sha256(first)==e.imageSha256,"First backup artifact has incorrect length or hash");
+    const Bytes second=reader(e.secondReadFile,SpiCapacity);require(second.size()==SpiCapacity && sha256(second)==e.imageSha256,"Second backup artifact has incorrect length or hash");
+    require(first==second,"Independent backup artifacts differ");
+    e.validatedSfdp_=reader(e.sfdpFile,64);require(e.validatedSfdp_.size()==64 && sha256(e.validatedSfdp_)==e.sfdpSha256,"SFDP artifact has incorrect length or hash");
+    require(e.validatedSfdp_[0]=='S' && e.validatedSfdp_[1]=='F' && e.validatedSfdp_[2]=='D' && e.validatedSfdp_[3]=='P',"SFDP artifact lacks its signature");
+    e.validatedMetadata_=evidenceMetadata(e);return e;
 }
 
 FlashPlan::FlashPlan(const Backup& backup,const Bytes& target,ImageKind kind):backup_(backup),target_(target),kind_(kind){
@@ -96,10 +146,11 @@ FlashPlan::FlashPlan(const Backup& backup,const Bytes& target,ImageKind kind):ba
 }
 FlashPlan planPackageOverlay(const Backup& backup,const Bytes& package,const FirmwarePolicy& policy){checkPolicy(backup,package,policy);Bytes target=backup.image;std::copy(package.begin(),package.end(),target.begin());return FlashPlan(backup,target,ImageKind::SamsungPackage);}
 FlashPlan planOwnDump(const Backup& backup,const Bytes& dump,const BackupEvidence& e,const FirmwarePolicy& policy){
-    validateBackup(backup);require(!backup.monitor.serialAmbiguous && !e.monitor.serialAmbiguous,"Full SPI restore cannot bind an ambiguous EDID identity to one physical unit");
+    validateBackup(backup);require(e.artifactsValidated(),"Own dump requires both read files and SFDP to be loaded and validated");
+    require(!backup.monitor.serialAmbiguous && !e.monitor.serialAmbiguous,"Full SPI restore cannot bind an ambiguous EDID identity to one physical unit");
     require(e.monitor==backup.monitor && e.readsEqual && e.capacity==SpiCapacity,"Dump evidence belongs to a different monitor or is incomplete");
     require(dump.size()==SpiCapacity && sha256(dump)==e.imageSha256,"Own dump hash differs from its double-read evidence");
-    require(e.flashJedecHex==hex(backup.flash.jedec) && e.sfdpSha256==sha256(backup.flash.sfdp),"Own dump flash identity differs");
+    require(e.flashJedecHex==hex(backup.flash.jedec) && e.sfdpBytes()==backup.flash.sfdp && e.sfdpSha256==sha256(backup.flash.sfdp) && e.statusBefore==hex(backup.flash.status),"Own dump flash identity or status differs");
     checkPolicy(backup,packageFromDump(dump),policy);
     require(std::equal(dump.begin()+PackageLimit,dump.end(),backup.image.begin()+PackageLimit),"Own dump changes the unclassified per-unit tail; this firmware tool does not restore it");
     return FlashPlan(backup,dump,ImageKind::OwnSpiDump);
@@ -178,7 +229,8 @@ Result Session::verify(const Bytes& input,ImageKind kind,const BackupEvidence* e
         require(!finished_,"Session already finished");validateBackup(backup_);r.backupVerified=true;
         Bytes target;
         if(kind==ImageKind::SamsungPackage){inspectPackage(input);target=backup_.image;std::copy(input.begin(),input.end(),target.begin());}
-        else{require(input.size()==SpiCapacity,"Verification requires a full 2 MiB SPI dump");require(evidence && evidence->readsEqual && !expected_.serialAmbiguous && evidence->monitor==expected_ && evidence->imageSha256==sha256(input),"Full dump verification requires matching unambiguous own-unit evidence");target=input;}
+        else{require(input.size()==SpiCapacity,"Verification requires a full 2 MiB SPI dump");require(evidence && evidence->artifactsValidated() && evidence->readsEqual && !expected_.serialAmbiguous && evidence->monitor==expected_ && evidence->imageSha256==sha256(input),"Full dump verification requires loaded matching unambiguous own-unit evidence");
+            require(evidence->flashJedecHex==hex(backup_.flash.jedec) && evidence->sfdpBytes()==backup_.flash.sfdp && evidence->statusBefore==hex(backup_.flash.status),"Full dump verification flash identity or status differs");target=input;}
         Bytes actual=readPair("verify",true,true);require(actual==target,"Firmware verification mismatch");verifyIdentityAndStatus(backup_.flash);
         r.targetSha256=sha256(target);r.targetVerified=true;r.success=true;finishReset(r);
     }catch(const std::exception& e){r.success=false;addError(r,e.what());}saveResult(r);return r;

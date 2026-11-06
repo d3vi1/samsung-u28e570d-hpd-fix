@@ -20,7 +20,22 @@ Backup fixtureBackup(const Bytes& image,MonitorIdentity identity=syntheticIdenti
     backup.firstSha256=backup.secondSha256=sha256(image); backup.persisted=true; return backup;
 }
 BackupEvidence evidenceFor(const Bytes& image,MonitorIdentity identity=syntheticIdentity()) {
-    return parseBackupManifest(backupManifest(fixtureBackup(image,identity)));
+    return loadBackupEvidence(backupManifest(fixtureBackup(image,identity)),[&](const std::string& leaf,std::uint32_t maximum){
+        if(leaf=="flash-sfdp.bin"){check(maximum==64,"SFDP read bound");return syntheticFlashIdentity().sfdp;}
+        check((leaf=="backup-read-1.bin" || leaf=="backup-read-2.bin") && maximum==SpiCapacity,"SPI read bound/leaf");return image;
+    });
+}
+std::string replaced(std::string text,const std::string& from,const std::string& to){
+    const auto position=text.find(from);check(position!=std::string::npos,"Missing test replacement: "+from);text.replace(position,from.size(),to);return text;
+}
+std::map<std::string,Bytes> evidenceFiles(const Bytes& image){
+    return {{"backup-read-1.bin",image},{"backup-read-2.bin",image},{"flash-sfdp.bin",syntheticFlashIdentity().sfdp}};
+}
+BackupEvidence loadFixtureEvidence(const std::string& manifest,const std::map<std::string,Bytes>& files){
+    return loadBackupEvidence(manifest,[&](const std::string& leaf,std::uint32_t maximum){
+        const auto found=files.find(leaf);check(found!=files.end(),"Missing fixture artifact");
+        check(maximum==(leaf=="flash-sfdp.bin"?64:SpiCapacity),"Unexpected artifact bound");return found->second;
+    });
 }
 unsigned fullPasses(const MockFlash& device) {
     unsigned count=0; std::uint32_t next=0; bool active=false;
@@ -40,8 +55,10 @@ bool hasValidBackupManifest(const MemoryStore& store) {
     for (const auto& file:store.files) {
         if (file.second.size()>65536) continue;
         try {
-            const auto evidence=parseBackupManifest(std::string(file.second.begin(),file.second.end()));
-            if (evidence.readsEqual && evidence.capacity==SpiCapacity) return true;
+            const auto evidence=loadBackupEvidence(std::string(file.second.begin(),file.second.end()),[&](const std::string& leaf,std::uint32_t maximum){
+                const auto artifact=store.files.find(leaf);check(artifact!=store.files.end() && artifact->second.size()<=maximum,"Stored evidence file missing or oversized");return artifact->second;
+            });
+            if (evidence.artifactsValidated() && evidence.capacity==SpiCapacity) return true;
         } catch (const std::exception&) {}
     }
     return false;
@@ -156,6 +173,120 @@ int main() {
         rejects([&]{parseBackupManifest(manifest.substr(0,last));},"Truncated JSON accepted");
         auto duplicate=manifest; duplicate.insert(1,"\"schema\":\"duplicate\",");
         rejects([&]{parseBackupManifest(duplicate);},"Duplicate JSON member accepted");
+    });
+    test("backup schema requires every documented field including nested evidence",[&] {
+        const auto manifest=backupManifest(fixtureBackup(source));
+        const char* fields[]={"schema","image_kind","model","created_utc","identity","flash","reads","reads_equal","coding_eeprom",
+            "manufacturer","product_code","edid_serial","edid_sha256","transport_locator","ambiguous","ambiguity_reason",
+            "jedec","sfdp_sha256","sfdp_bytes","sfdp_file","capacity","sector_size","page_size","programming_chunk_size","status_before","status_after",
+            "file","bytes","sha256","available","reason"};
+        for(const char* field:fields){
+            const std::string key="\""+std::string(field)+"\":";
+            rejects([&]{parseBackupManifest(replaced(manifest,key,"\"omitted_"+std::string(field)+"\":"));},"Missing mandatory field accepted: "+std::string(field));
+        }
+        const auto first=manifest.find("\"reads\":["),second=manifest.find("},{",first)+2;
+        for(const char* field:{"file","bytes","sha256"}){
+            auto damaged=manifest.substr(0,second)+replaced(manifest.substr(second),"\""+std::string(field)+"\":","\"omitted_"+std::string(field)+"\":");
+            rejects([&]{parseBackupManifest(damaged);},"Missing second-read field accepted");
+        }
+    });
+    test("backup schema accepts unknown fields including general JSON numbers",[&] {
+        auto manifest=backupManifest(fixtureBackup(source));
+        manifest.insert(1,"\"extra\":{\"negative\":-2,\"fraction\":1.25,\"exponent\":-3.5e+99,\"huge\":18446744073709551616000,\"tiny\":1e-9999,\"array\":[null,false,\"ok\"]},");
+        manifest=replaced(manifest,"\"flash\":{","\"flash\":{\"extension\":-0.1,");
+        const auto evidence=loadFixtureEvidence(manifest,evidenceFiles(source));
+        check(evidence.artifactsValidated() && evidence.imageSha256==sha256(source),"Extra fields changed evidence validity");
+    });
+    test("consumed integer fields reject negative fractional exponent overflow and wrong types",[&] {
+        const auto manifest=backupManifest(fixtureBackup(source));
+        for(const char* value:{"-2097152","2097152.0","2097152e0","18446744073709551616","\"2097152\"","true","null"}){
+            rejects([&]{parseBackupManifest(replaced(manifest,"\"capacity\":2097152","\"capacity\":"+std::string(value)));},"Invalid capacity type accepted");
+        }
+        for(const char* value:{"01","1.","1e","1e+","--1","+1","NaN","Infinity"}){
+            auto invalid=manifest;invalid.insert(1,"\"extra\":"+std::string(value)+",");
+            rejects([&]{parseBackupManifest(invalid);},"Invalid JSON number accepted");
+        }
+        auto tooLarge=manifest;tooLarge.append(1024*1024,' ');
+        rejects([&]{parseBackupManifest(tooLarge);},"Manifest exceeded the 1 MiB bound");
+    });
+    test("backup dates and fixed schema values are checked",[&] {
+        const auto manifest=backupManifest(fixtureBackup(source));const auto parsed=parseBackupManifest(manifest);
+        for(const char* date:{"2024-02-29T12:34:56Z","2024-02-29t12:34:56.123+02:30","2024-02-29T12:34:56-00:00"})
+            check(parseBackupManifest(replaced(manifest,parsed.createdUtc,date)).createdUtc==date,"Valid RFC3339 date rejected");
+        for(const char* date:{"","2023-02-29T12:34:56Z","2024-13-01T12:34:56Z","2024-01-01T24:00:00Z","2024-01-01T00:00:00","2024-01-01T00:00:00.Z","2024-01-01T00:00:00+24:00"})
+            rejects([&]{parseBackupManifest(replaced(manifest,jsonQuote(parsed.createdUtc),jsonQuote(date)));},"Malformed RFC3339 date accepted");
+        const std::pair<const char*,const char*> changes[]={
+            {"\"available\":false","\"available\":true"},{"\"programming_chunk_size\":32","\"programming_chunk_size\":256"},
+            {"\"jedec\":\"ef4015\"","\"jedec\":\"ef4016\""},{"\"status_before\":\"0000\"","\"status_before\":\"0400\""},
+            {"\"manufacturer\":\"SAM\"","\"manufacturer\":\"sam\""},{"\"model\":\"LU28E570DS/EN\"","\"model\":\"\""}};
+        for(const auto& change:changes)rejects([&]{parseBackupManifest(replaced(manifest,change.first,change.second));},"Invalid fixed schema value accepted");
+        rejects([&]{parseBackupManifest(replaced(manifest,jsonQuote(codingEepromUnavailableReason()),"\"\""));},"Empty EEPROM reason accepted");
+        auto jv=replaced(replaced(manifest,"\"status_before\":\"0000\"","\"status_before\":\"000260\""),"\"status_after\":\"0000\"","\"status_after\":\"000260\"");
+        check(parseBackupManifest(jv).statusBefore=="000260","Supported JV status rejected");
+    });
+    test("artifact names reject traversal aliases and duplicate leaves before reads",[&] {
+        const auto manifest=backupManifest(fixtureBackup(source));unsigned reads=0;
+        for(const std::string& leaf:{std::string("../outside.bin"),std::string("sub/file.bin"),std::string("sub\\file.bin"),std::string("C:escape.bin"),std::string("read.bin:stream"),std::string(".hidden"),std::string("trailing."),std::string("CON.bin"),std::string("aux"),std::string("COM1.bin"),std::string("lpt9"),std::string(256,'a')}){
+            check(!isSafeBackupArtifactLeaf(leaf),"Unsafe leaf accepted by helper");
+            const auto bad=replaced(manifest,"\"backup-read-1.bin\"",jsonQuote(leaf));
+            rejects([&]{loadBackupEvidence(bad,[&](const std::string&,std::uint32_t){++reads;return source;});},"Unsafe artifact name reached loader");
+        }
+        for(const char* duplicate:{"BACKUP-READ-1.BIN","flash-sfdp.bin"}){
+            rejects([&]{loadBackupEvidence(replaced(manifest,"backup-read-2.bin",duplicate),[&](const std::string&,std::uint32_t){++reads;return source;});},"Aliased artifact references accepted");
+        }
+        check(reads==0,"Invalid leaves caused artifact reads");
+        check(isSafeBackupArtifactLeaf("alternative-SFDP_64.bin") && isSafeBackupArtifactLeaf(std::string(255,'a')),"Safe schema leaf rejected");
+    });
+    test("offline evidence loads two distinct exact images and the SFDP file",[&] {
+        auto manifest=backupManifest(fixtureBackup(source));manifest=replaced(manifest,"flash-sfdp.bin","custom-sfdp.bin");
+        std::vector<std::string> leaves;
+        const auto evidence=loadBackupEvidence(manifest,[&](const std::string& leaf,std::uint32_t maximum){
+            leaves.push_back(leaf);check(isSafeBackupArtifactLeaf(leaf),"Callback received unsafe leaf");
+            check(maximum==(leaf=="custom-sfdp.bin"?64:SpiCapacity),"Callback received wrong size bound");
+            return leaf=="custom-sfdp.bin"?syntheticFlashIdentity().sfdp:source;
+        });
+        check(leaves==std::vector<std::string>{"backup-read-1.bin","backup-read-2.bin","custom-sfdp.bin"},"Not all independent artifacts were read");
+        check(evidence.artifactsValidated() && evidence.sfdpBytes()==syntheticFlashIdentity().sfdp,"Offline proof or SFDP changed");
+    });
+    test("offline evidence rejects each missing image or SFDP artifact",[&] {
+        const auto manifest=backupManifest(fixtureBackup(source));
+        for(const char* leaf:{"backup-read-1.bin","backup-read-2.bin","flash-sfdp.bin"}){
+            auto files=evidenceFiles(source);files.erase(leaf);
+            rejects([&]{loadFixtureEvidence(manifest,files);},"Missing artifact accepted: "+std::string(leaf));
+        }
+        rejects([&]{loadBackupEvidence(manifest,BackupArtifactReader());},"Missing artifact reader accepted");
+    });
+    test("offline evidence rejects corruption truncation and excess bytes in every artifact",[&] {
+        const auto manifest=backupManifest(fixtureBackup(source));
+        for(const char* leaf:{"backup-read-1.bin","backup-read-2.bin","flash-sfdp.bin"})for(int damage=0;damage<3;++damage){
+            auto files=evidenceFiles(source);auto& data=files.at(leaf);
+            if(damage==0)data.back()^=1;else if(damage==1)data.pop_back();else data.push_back(0);
+            rejects([&]{loadFixtureEvidence(manifest,files);},"Damaged artifact accepted: "+std::string(leaf));
+        }
+    });
+    test("parsed or edited metadata cannot substitute for validated artifact proof",[&] {
+        const auto backup=fixtureBackup(source);const auto target=syntheticDump(candidate);
+        const auto parsed=parseBackupManifest(backupManifest(fixtureBackup(target)));
+        check(!parsed.artifactsValidated(),"Parser issued artifact proof");
+        rejects([&]{planOwnDump(backup,target,parsed,policy);},"Manifest-only restore accepted");
+        auto evidence=evidenceFor(target);evidence.firstReadFile="unread.bin";
+        check(!evidence.artifactsValidated(),"Edited read filename retained proof");
+        rejects([&]{planOwnDump(backup,target,evidence,policy);},"Edited evidence authorized a restore");
+        evidence=evidenceFor(target);evidence.monitor.ambiguityReason="changed";
+        check(!evidence.artifactsValidated(),"Edited identity reason retained proof");
+        evidence=evidenceFor(target);evidence.statusBefore="000260";
+        check(!evidence.artifactsValidated(),"Edited flash status retained proof");
+        evidence=evidenceFor(target);evidence.createdUtc="2000-01-01T00:00:00Z";
+        check(!evidence.artifactsValidated(),"Edited creation time retained proof");
+    });
+    test("validated SFDP bytes and status must match the current flash",[&] {
+        const auto backup=fixtureBackup(source);const auto target=syntheticDump(candidate);auto stored=fixtureBackup(target);
+        stored.flash.sfdp.back()^=1;auto files=evidenceFiles(target);files["flash-sfdp.bin"]=stored.flash.sfdp;
+        const auto changedSfdp=loadFixtureEvidence(backupManifest(stored),files);
+        rejects([&]{planOwnDump(backup,target,changedSfdp,policy);},"Different actual SFDP accepted");
+        stored=fixtureBackup(target);stored.flash.status={0,2,0x60};
+        const auto changedStatus=loadFixtureEvidence(backupManifest(stored),evidenceFiles(target));
+        rejects([&]{planOwnDump(backup,target,changedStatus,policy);},"Different flash status accepted");
     });
     test("own dump requires matching identity verified evidence and unambiguous serial",[&] {
         const auto backup=fixtureBackup(source); const auto target=syntheticDump(candidate);
@@ -317,6 +448,19 @@ int main() {
         const auto result=session.verify(originalPackage,ImageKind::SamsungPackage);
         check(result.success && result.targetVerified && result.resetSucceeded,"Package verify failed: "+result.error);
         check(fullPasses(device)>=2 && fullPasses(device)%2==0 && device.eraseCalls==0 && device.programCalls==0,"Verify did not use paired full reads");
+    });
+    test("full dump verification rejects manifest-only evidence before another read",[&] {
+        MockFlash device(source);MemoryStore store;Session session(device,store,device.identity);session.backupTwice();
+        const auto evidence=parseBackupManifest(backupManifest(fixtureBackup(source)));
+        const auto result=session.verify(source,ImageKind::OwnSpiDump,&evidence);
+        check(!result.success && !result.targetVerified && fullPasses(device)==2,"Manifest-only evidence reached verification reads");
+        check(device.eraseCalls==0 && device.programCalls==0 && device.resetCalls==0 && store.recoveryArmed,"Rejected evidence changed flash or reset");
+    });
+    test("full dump verification accepts fully loaded matching evidence",[&] {
+        MockFlash device(source);MemoryStore store;Session session(device,store,device.identity);session.backupTwice();
+        const auto evidence=evidenceFor(source);const auto result=session.verify(source,ImageKind::OwnSpiDump,&evidence);
+        check(result.success && result.targetVerified && result.resetSucceeded && fullPasses(device)==4,"Loaded evidence verification failed: "+result.error);
+        check(device.eraseCalls==0 && device.programCalls==0,"Full dump verification programmed flash");
     });
     test("explicit verification rejects disagreement in its second full pass",[&] {
         MockFlash device(source); MemoryStore store;

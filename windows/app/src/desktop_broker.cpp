@@ -9,6 +9,7 @@
 #include <sstream>
 #include <memory>
 #include <algorithm>
+#include <iomanip>
 
 #ifndef MONITORFW_ENABLE_HARDWARE
 #define MONITORFW_ENABLE_HARDWARE 0
@@ -100,7 +101,10 @@ int runRequest(const std::wstring& localState,const std::string& id,bool autoCon
                 input=inputFile(join(directory,L"input.bin"),SpiCapacity);
                 if(sha256(input)!=request.firmwareSha256)throw Error("Input bytes changed after frontend selection");
                 if(request.imageKind==ImageKind::SamsungPackage)inspectPackage(input);
-                else {if(input.size()!=SpiCapacity)throw Error("Full SPI input must be exactly 2 MiB");evidence=parseBackupManifest(text(inputFile(join(directory,L"backup-evidence.json"),1024*1024)));}
+                else {
+                    if(input.size()!=SpiCapacity)throw Error("Full SPI input must be exactly 2 MiB");
+                    evidence=loadLocalBackupEvidence(join(directory,L"backup-evidence.json"),join(directory,L"evidence"));
+                }
             }
             // Serialized, persistent synthetic state makes separate broker mock
             // requests behave like one simulated monitor. Never used in hardware.
@@ -144,18 +148,63 @@ int selfTest(const std::wstring& root){
     // The caller supplies a fresh TEMP directory. No registry, NVAPI or AppContainer
     // deployment is accessed. Tests deliberately exercise the production broker.
     check(CreateDirectoryW(root.c_str(),0)!=0,"Self-test requires a new directory");check(CreateDirectoryW(join(root,L"requests").c_str(),0)!=0,"Cannot create test requests");
-    const auto identity=testing::syntheticIdentity();unsigned done=0;
-    for(const char* action:{"enumerate","download","upload","verify"}){
-        const std::string id="12345678-1234-4234-8234-00000000000"+std::to_string(done);const auto dir=join(join(root,L"requests"),widenUtf8(id));check(CreateDirectoryW(dir.c_str(),0)!=0,"Cannot create request directory");
-        const Bytes package=testing::syntheticPackage("1000.1",128);
-        if(std::string(action)=="upload"||std::string(action)=="verify")writeRecord(join(dir,L"input.bin"),package);
+    const auto identity=testing::syntheticIdentity();unsigned done=0,replays=0,rejectedBundles=0;
+    std::wstring originalArtifacts;
+    const Bytes package=testing::syntheticPackage("1000.1",128);
+    auto requestCase=[&](const std::string& action,bool ownDump,const std::string& fault){
+        std::ostringstream number;number<<std::setfill('0')<<std::setw(12)<<done;
+        const std::string id="12345678-1234-4234-8234-"+number.str();
+        const auto dir=join(join(root,L"requests"),widenUtf8(id));check(CreateDirectoryW(dir.c_str(),0)!=0,"Cannot create request directory");
+        Bytes input=package;
+        if(ownDump){
+            const auto artifacts=join(dir,L"evidence");check(CreateDirectoryW(artifacts.c_str(),0)!=0,"Cannot create evidence fixture");
+            input=inputFile(join(originalArtifacts,L"backup-read-1.bin"),SpiCapacity);
+            std::string manifest=text(inputFile(join(originalArtifacts,L"backup.json"),1024*1024));
+            unsigned index=0;
+            for(const wchar_t* leaf:{L"backup-read-1.bin",L"backup-read-2.bin",L"flash-sfdp.bin"}){
+                const std::string suffix=std::to_string(index++);
+                if(fault=="missing-"+suffix)continue;
+                Bytes bytes=inputFile(join(originalArtifacts,leaf),leaf==std::wstring(L"flash-sfdp.bin")?64:SpiCapacity);
+                if(fault=="corrupt-"+suffix)bytes.back()^=1;
+                writeRecord(join(artifacts,leaf),bytes);
+            }
+            if(fault=="duplicate"||fault=="unsafe-leaf"){
+                const std::string token="backup-read-2.bin";const auto offset=manifest.find(token);
+                check(offset!=std::string::npos,"Manifest fixture token is missing");
+                manifest.replace(offset,token.size(),fault=="duplicate"?"BACKUP-READ-1.BIN":"../escape.bin");
+            }
+            writeRecord(join(dir,L"backup-evidence.json"),manifest);
+        }
+        if(action=="upload"||action=="verify")writeRecord(join(dir,L"input.bin"),input);
         std::ostringstream request;request<<"{\"schema\":\"monitorfw.request.v1\",\"request_id\":"<<jsonQuote(id)<<",\"created_unix\":"<<std::time(0)
           <<",\"action\":"<<jsonQuote(action)<<",\"mode\":\"mock\",\"provider_id\":\"nvidia\",\"endpoint_locator\":"<<jsonQuote(identity.transportLocator)
-          <<",\"expected_edid_sha256\":"<<jsonQuote(identity.edidSha256)<<",\"image_kind\":\"samsung_package\",\"firmware_sha256\":"<<jsonQuote(sha256(package))<<'}';
-        writeRecord(join(dir,L"request.json"),request.str());if(runRequest(root,id,true)!=0)throw Error("Broker mock operation failed: "+std::string(action));
-        bool replayRejected=false;try{runRequest(root,id,true);}catch(...){replayRejected=true;}if(!replayRejected)throw Error("Broker replay was accepted");++done;
-    }
-    writeRecord(join(root,L"self-test.json"),"{\"passed\":4,\"replaysRejected\":4,\"hardwareAccessed\":false}\n");return 0;
+          <<",\"expected_edid_sha256\":"<<jsonQuote(identity.edidSha256)<<",\"image_kind\":"<<jsonQuote(ownDump?"spi_full":"samsung_package")
+          <<",\"firmware_sha256\":"<<jsonQuote(sha256(input))<<'}';
+        Bytes stateBefore;if(!fault.empty())stateBefore=inputFile(join(root,L"mock-flash.bin"),SpiCapacity);
+        writeRecord(join(dir,L"request.json"),request.str());const int status=runRequest(root,id,true);
+        if(fault.empty()){
+            if(status!=0)throw Error("Broker mock operation failed: "+action+(ownDump?" own SPI bundle":" package"));
+            if(action=="download")originalArtifacts=join(dir,L"artifacts");
+        }else{
+            check(status==2,"Invalid backup bundle was accepted");
+            const std::string response=text(inputFile(join(dir,L"response.json"),1024*1024));
+            check(response.find("\"success\":false")!=std::string::npos && response.find("\"result\":null")!=std::string::npos,
+                "Invalid bundle did not fail before the device session");
+            check(GetFileAttributesW(join(dir,L"artifacts").c_str())==INVALID_FILE_ATTRIBUTES,"Invalid bundle reached the artifact/device session");
+            check(inputFile(join(root,L"mock-flash.bin"),SpiCapacity)==stateBefore,"Invalid bundle changed mock flash state");
+            ++rejectedBundles;
+        }
+        bool replayRejected=false;try{runRequest(root,id,true);}catch(...){replayRejected=true;}
+        if(!replayRejected)throw Error("Broker replay was accepted");
+        ++replays;++done;
+    };
+    for(const char* action:{"enumerate","download","upload","verify"})requestCase(action,false,"");
+    requestCase("upload",true,"");requestCase("verify",true,"");
+    for(const char* fault:{"missing-0","missing-1","missing-2","corrupt-0","corrupt-1","corrupt-2","duplicate","unsafe-leaf"})
+        requestCase("upload",true,fault);
+    std::ostringstream summary;summary<<"{\"passed\":"<<done<<",\"replaysRejected\":"<<replays<<",\"validOwnBundleOperations\":2,\"invalidBundlesRejected\":"
+        <<rejectedBundles<<",\"hardwareAccessed\":false}\n";
+    writeRecord(join(root,L"self-test.json"),summary.str());return 0;
 }
 }
 int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int){

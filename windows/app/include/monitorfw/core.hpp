@@ -89,14 +89,30 @@ struct Backup {
     bool persisted = false;
 };
 enum class ImageKind { SamsungPackage, OwnSpiDump };
+typedef std::function<Bytes(const std::string& leaf, std::uint32_t maximumBytes)> BackupArtifactReader;
 struct BackupEvidence {
     MonitorIdentity monitor;
     std::string imageSha256, flashJedecHex, sfdpSha256;
+    std::string createdUtc, firstReadFile, secondReadFile, sfdpFile, statusBefore, statusAfter;
     std::uint32_t capacity = 0;
+    std::uint32_t programmingChunkSize = 0;
     bool readsEqual = false;
+    // Parsing metadata alone never authorizes a restore. The private snapshot
+    // also invalidates validation if callers subsequently edit public metadata.
+    bool artifactsValidated() const;
+    const Bytes& sfdpBytes() const { return validatedSfdp_; }
+private:
+    std::string validatedMetadata_;
+    Bytes validatedSfdp_;
+    friend BackupEvidence loadBackupEvidence(const std::string&, const BackupArtifactReader&);
 };
 std::string backupManifest(const Backup& backup);
 BackupEvidence parseBackupManifest(const std::string& json);
+bool isSafeBackupArtifactLeaf(const std::string& leaf);
+// Offline only: the callback must read a safe leaf from the selected bundle,
+// enforce maximumBytes, and throw on missing/unreadable files. Actual lengths,
+// hashes and equality are independently checked here before proof is issued.
+BackupEvidence loadBackupEvidence(const std::string& json, const BackupArtifactReader& reader);
 
 struct SectorChange {
     std::uint32_t address = 0;

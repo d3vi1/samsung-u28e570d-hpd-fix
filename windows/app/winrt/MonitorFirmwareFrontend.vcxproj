@@ -29,6 +29,7 @@
     <TargetName>MonitorFirmwareFrontend</TargetName>
     <OutDir>$(ProjectDir)build\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)build\obj\$(Platform)\$(Configuration)\</IntDir>
+    <GeneratedFilesDir>$(IntDir)Generated Files\</GeneratedFilesDir>
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
     <GenerateManifest>false</GenerateManifest>
   </PropertyGroup>
@@ -44,13 +45,15 @@
       <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
-    <Link><SubSystem>Windows</SubSystem><GenerateWindowsMetadata>true</GenerateWindowsMetadata></Link>
+    <Link><SubSystem>Windows</SubSystem><GenerateWindowsMetadata>true</GenerateWindowsMetadata><AdditionalOptions>/PDBALTPATH:MonitorFirmwareFrontend.pdb %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <SDKReference Include="Microsoft.VCLibs, Version=11.0" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="pch.h" /><ClInclude Include="App.xaml.h" /><ClInclude Include="MainPage.xaml.h" />
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="App.xaml.h"><DependentUpon>App.xaml</DependentUpon></ClInclude>
+    <ClInclude Include="MainPage.xaml.h"><DependentUpon>MainPage.xaml</DependentUpon></ClInclude>
     <ClCompile Include="pch.cpp"><PrecompiledHeader>Create</PrecompiledHeader></ClCompile>
     <ClCompile Include="App.xaml.cpp"><DependentUpon>App.xaml</DependentUpon></ClCompile>
     <ClCompile Include="MainPage.xaml.cpp"><DependentUpon>MainPage.xaml</DependentUpon></ClCompile>

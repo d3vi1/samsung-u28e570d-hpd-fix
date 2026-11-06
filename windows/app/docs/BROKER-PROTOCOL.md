@@ -1,6 +1,6 @@
 # Desktop broker protocol v1
 
-The Windows 8 XAML frontend sends bounded file requests to a separate desktop process. The broker links the same transaction engine as the Win32 application. URI activation is an explicit user action, not an operation completion signal. This transport has passed independent mock tests; actual Windows 8 AppContainer integration remains untested.
+The Windows 8 XAML frontend sends bounded file requests to a separate desktop process. The broker links the same transaction engine as the Win32 application. URI activation is an explicit user action, not an operation completion signal. The desktop transport has passed independent mock tests. The separate C++/CX frontend has passed x86 XAML generation, compilation, linking and unsigned APPX packaging on Windows 10 using the official Microsoft v110 and SDK 8.0 payloads extracted into the workspace. It has not been installed or run, and Windows 8 deployment and AppContainer integration remain untested. See [LEGACY-BUILD.md](LEGACY-BUILD.md) for the build procedure and [WINRT-FRONTEND.md](WINRT-FRONTEND.md) for artifact hashes and UI scope. These validations performed no hardware access.
 
 ## Installation boundary
 
@@ -18,7 +18,11 @@ The broker accepts the canonical lowercase hexadecimal UUID shape; the frontend 
 
 ## Request and fixed files
 
-All files belong to `LocalState/requests/<UUID>/`. The frontend copies selected data to `input.bin` and, when needed, `backup-evidence.json`, using fail-if-exists semantics. It hashes the copied input and writes `request.json` last, by renaming a pending file. The broker reads inputs from the same validated handle, rejecting reparse points and concurrent write/delete sharing. It holds path components against rename and rejects reparse directories.
+All files belong to `LocalState/requests/<UUID>/`. The frontend copies the selected image to `input.bin` using fail-if-exists semantics. For an own SPI dump it uses FolderPicker to select the bundle directory containing `backup.json` and the adjacent referenced artifacts; a single-file picker does not grant sibling-file access. The manifest is copied to `backup-evidence.json` at the request root. Both files referenced by `reads[0].file` and `reads[1].file`, and the file referenced by `flash.sfdp_file`, are copied into `evidence/` under their validated leaf names.
+
+All three leaf names must be distinct ignoring case and contain 1–255 ASCII characters matching `[A-Za-z0-9][A-Za-z0-9._-]*`, with no trailing dot or reserved Windows device name. Each SPI read must be exactly 2 MiB and SFDP exactly 64 bytes. The frontend hashes the copied files, checks the evidence hashes and the input/read-hash match, then publishes `request.json` last by renaming a pending file. Preparation failure does not dispatch a request.
+
+The broker reads inputs from the same validated handle, rejecting reparse points and concurrent write/delete sharing. It holds path components against rename and rejects reparse directories. It independently validates the full manifest and reloads both actual read files and SFDP through the core evidence loader, checking lengths, hashes, byte equality and SFDP contents. Manifest parsing alone does not produce validated evidence. The engine additionally checks live monitor binding, flash status/profile and the applicable firmware policy before accepting an own-dump operation.
 
 The request must have exactly these ten fields:
 
@@ -35,7 +39,7 @@ The request must have exactly these ten fields:
 | `image_kind` | `samsung_package` or `spi_full` |
 | `firmware_sha256` | Lowercase 64-digit hash of copied input for upload/verify |
 
-Empty unused strings are allowed for enumeration/download. Unknown providers are rejected by the registry. JSON parsing is bounded and rejects duplicate fields. Inputs are bounded to 2 MiB. The frontend limits backup evidence to 64 KiB; the broker independently accepts at most 1 MiB. A persistent `claimed.lock`, created exclusively before parsing, consumes the request even if parsing or the operation fails. Reusing its UUID cannot rerun it.
+Empty unused strings are allowed for enumeration/download. Unknown providers are rejected by the registry. JSON parsing is bounded and rejects duplicate fields. Images are bounded to 2 MiB. The frontend limits the evidence manifest to 64 KiB; the broker independently accepts at most 1 MiB. The separate binary evidence files have the exact lengths above. A persistent `claimed.lock`, created exclusively before parsing, consumes the request even if parsing or the operation fails. Reusing its UUID cannot rerun it.
 
 Hardware mode must be compiled in and deliberately requested. It does not fall back to another provider or mode. Before upload, the desktop broker requires confirmation of the concrete engine plan; JSON has no confirmation-bypass field. The self-test-only mock confirmation path cannot select hardware.
 
@@ -66,4 +70,4 @@ After the transaction engine starts executing a programming plan, broker excepti
 
 ## Offline test entry point
 
-`--self-test <fresh-TEMP-directory>` bypasses registration and AppContainer lookup, generates synthetic input, and runs mock enumerate/download/upload/verify requests plus four replay rejections. It cannot construct a hardware request. `tests/Run-BrokerSmoke.ps1` checks its artifacts/results and removes only its verified fresh TEMP directory. The standalone frontend test `winrt/Test-WinRtStatic.ps1` does not launch the broker.
+`--self-test <fresh-TEMP-directory>` bypasses registration and AppContainer lookup, generates synthetic input, and runs 14 mock cases (six valid operations and eight invalid backup bundles), followed by 14 replay rejections. It cannot construct a hardware request. `tests/Run-BrokerSmoke.ps1` checks its artifacts/results and removes only its verified fresh TEMP directory. The standalone frontend test `winrt/Test-WinRtStatic.ps1` does not launch the broker.

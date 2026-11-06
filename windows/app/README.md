@@ -7,7 +7,7 @@ Two frontends share the C++ transaction engine:
 | Component | Status |
 | --- | --- |
 | Native Win32 frontend, intended for XP through Windows 7 | x86 compiled and mock-tested on Windows 10; XP/7 runtime and drivers unqualified |
-| Separate Windows 8 WinRT/XAML frontend | C++/CX v110/SDK 8.0 source and static checks only; not compiled or deployed |
+| Separate Windows 8 WinRT/XAML frontend | x86 compiled and packaged unsigned with Microsoft v110/SDK 8.0 on Windows 10; not deployed or run |
 | Desktop broker for the XAML frontend | x86 compiled; file protocol and mock operations tested independently of XAML |
 | NVIDIA I2C provider | Implemented; scripted transport tests and compile-only hardware build; no live validation of this C++ implementation |
 | Intel and AMD providers | Explicitly unavailable; extension interfaces and documentation included |
@@ -24,13 +24,13 @@ cmake --build build-x86
 ctest --test-dir build-x86 --output-on-failure
 ```
 
-Launch `build-x86/samsung_monitor_firmware.exe`. Keep **MOCK / OFFLINE** selected, refresh the simulated endpoint and choose an output directory. **Read / download** creates a fresh directory containing both independent reads, their manifest and transaction evidence. **Browse** selects a Samsung package or a full SPI image; select the matching backup manifest for an own SPI image. **Verify** compares against the selected image. **Upload / restore** first creates a new backup and displays the exact immutable programming plan for confirmation.
+Launch `build-x86/samsung_monitor_firmware.exe`. Keep **MOCK / OFFLINE** selected, refresh the simulated endpoint and choose an output directory. **Read / download** creates a fresh directory containing both independent reads, their manifest and transaction evidence. **Browse** selects a Samsung package or a full SPI image. For an own SPI image, select its backup manifest and keep both read files and SFDP file beside it: the application reloads and verifies the complete bundle. **Verify** compares against the selected image. **Upload / restore** first creates a new backup and displays the exact immutable programming plan for confirmation.
 
 The mock device contains synthetic firmware. Real packages may correctly fail its loader/profile checks. The hidden `--smoke-test` mode generates compatible synthetic inputs and exercises the full sequence automatically; it never opens a GPU. Normal uploads, including normal mock uploads, require the plan dialog.
 
 Provider selection reads metadata only. Hardware access is excluded from the default application and broker entry points. `SAMSUNG_ENABLE_HARDWARE=ON` produces an experimental hardware-capable build; successful compilation is not qualification to use it. No application operation requires an automatic UAC prompt.
 
-For the separate XAML project and its explicit deployment/registration steps, see [WinRT frontend](docs/WINRT-FRONTEND.md) and [broker protocol](docs/BROKER-PROTOCOL.md). The desktop CMake build does not build XAML. The registration script is not part of the test or build process.
+For the separate XAML project, see [WinRT frontend](docs/WINRT-FRONTEND.md), the demonstrated [legacy build route](docs/LEGACY-BUILD.md) and [broker protocol](docs/BROKER-PROTOCOL.md). XAML uses a folder picker for the bundle containing `backup.json`. The desktop CMake build does not build XAML. Deployment and protocol registration remain separate; neither is part of the build/test process.
 
 ## Transaction behavior
 
@@ -40,9 +40,9 @@ For the separate XAML project and its explicit deployment/registration steps, se
 - Programming uses an immutable list of changed 4 KiB sectors, packets carrying up to 32 data bytes and full read-back after each sector. If the firmware header sector at `0x10000` changes, it is written last. No chip erase or flash-status rewrite is used.
 - Cancellation is accepted before the first mutation. Once a sector may have changed, the engine completes verification or attempts restoration of every touched sector; it does not interrupt midway because the UI was closed.
 - Reset is attempted only after the target or restored original image and status have been verified. Persistent recovery markers block another normal operation after an unresolved interruption. There is no automatic reset in destructors and no blind recovery override in the UI.
-- A Samsung package is overlaid on the current monitor's complete backup, preserving trailing bytes. Restoring a full SPI dump requires an unambiguous matching monitor identity and valid dual-read evidence. Hash, identity, bootstrap, PM51 and protected-tail checks reject images outside the reviewed constraints. The manifest is checked for consistency; it is not an authenticated certificate of origin.
+- A Samsung package is overlaid on the current monitor's complete backup, preserving trailing bytes. Restoring or verifying a full SPI dump requires an unambiguous matching monitor identity and a fully reloaded evidence bundle: both distinct 2 MiB images and SFDP64 are sized, hashed and compared. A parsed manifest alone cannot authorize the operation. The Windows reader rejects reparse paths, concurrent writers and aliases of the same file. Hash, identity, bootstrap, PM51 and protected-tail checks reject images outside the reviewed constraints. These consistency checks are not an authenticated certificate of origin.
 
-The backup format is `monitorfw.backup.v1`; it includes both read files/hashes, identity, flash geometry/status and the SHA256 of `flash-sfdp.bin` (64 bytes). The physical page size is 256 bytes and the programming chunk size is 32 bytes. Completed artifacts are published without overwriting existing files, with a durable journal and recovery marker.
+The backup format is `monitorfw.backup.v1`; it includes both read files/hashes, identity, flash geometry/status and the SHA256 of `flash-sfdp.bin` (64 bytes). The parser requires the shared schema's mandatory fields, including the RFC3339 timestamp and explicit EEPROM unavailability, while accepting extra fields. The physical page size is 256 bytes and the programming chunk size is 32 bytes. Completed artifacts are published without overwriting existing files, with a durable journal and recovery marker.
 
 **Coding EEPROM is unavailable.** A main SPI dump does not establish a backup of separate EEPROM, OTP/security storage or every calibration value. No safe complete external EEPROM read route has been demonstrated, and a RAM mirror would not establish one. This application does not expose EEPROM coding or offset `0x8E` writes.
 

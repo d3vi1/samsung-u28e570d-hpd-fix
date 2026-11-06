@@ -4,14 +4,15 @@
 namespace monitorfw { namespace detail {
 inline void require(bool value,const std::string& message){if(!value)throw Error(message);}
 // Small strict JSON reader for bounded evidence files. Reject duplicate keys,
-// excessive nesting, invalid escapes and non-integer numbers; never executes data.
+// excessive nesting and invalid escapes; never executes data. Unknown fields
+// may contain any JSON number, but consumed integers remain strictly bounded.
 struct Json {
     enum Type { Null, String, Number, Boolean, Object, Array } type=Null;
-    std::string string;std::uint64_t number=0;bool boolean=false;
+    std::string string;std::uint64_t number=0;bool boolean=false, unsignedInteger=false;
     std::map<std::string,Json> object;std::vector<Json> array;
     const Json& at(const std::string& key)const{require(type==Object,"Manifest field is not an object");auto p=object.find(key);require(p!=object.end(),"Missing manifest field: "+key);return p->second;}
     std::string text()const{require(type==String,"Manifest field must be a string");return string;}
-    std::uint64_t integer()const{require(type==Number,"Manifest field must be an unsigned integer");return number;}
+    std::uint64_t integer()const{require(type==Number && unsignedInteger,"Manifest field must be a bounded unsigned integer without fraction or exponent");return number;}
     bool flag()const{require(type==Boolean,"Manifest field must be boolean");return boolean;}
 };
 class JsonReader {
@@ -38,8 +39,20 @@ class JsonReader {
             unsigned count=0;for(;;){require(++count<=1024,"Too many manifest fields");white();if(obj){std::string key=string();white();require(take()==':',"Missing JSON colon");Json child=value(depth+1);require(out.object.emplace(key,child).second,"Duplicate JSON key");}else out.array.push_back(value(depth+1));white();char separator=take();if(separator==end)break;require(separator==',',"Missing JSON comma");}return out;}
         if(c=='t'||c=='f'){out.type=Json::Boolean;out.boolean=c=='t';literal(out.boolean?"true":"false");return out;}
         if(c=='n'){literal("null");return out;}
-        require(c>='0' && c<='9',"Manifest numbers must be unsigned integers");out.type=Json::Number;
-        const bool zero=c=='0';do{unsigned digit=unsigned(take()-'0');require(out.number<=(UINT64_MAX-digit)/10,"Manifest integer overflow");out.number=out.number*10+digit;}while(p_<s_.size() && s_[p_]>='0' && s_[p_]<='9' && !zero);
+        out.type=Json::Number;out.unsignedInteger=true;
+        if(c=='-'){out.unsignedInteger=false;++p_;}
+        require(p_<s_.size() && s_[p_]>='0' && s_[p_]<='9',"Invalid JSON number");
+        const std::size_t digitsStart=p_;const bool zero=s_[p_]=='0';
+        do{const unsigned digit=unsigned(take()-'0');if(out.unsignedInteger){if(out.number>(UINT64_MAX-digit)/10)out.unsignedInteger=false;else out.number=out.number*10+digit;}}
+        while(p_<s_.size() && s_[p_]>='0' && s_[p_]<='9' && !zero);
+        require(p_>digitsStart && !(zero && p_<s_.size() && s_[p_]>='0' && s_[p_]<='9'),"Leading zero in JSON number");
+        if(p_<s_.size() && s_[p_]=='.'){
+            out.unsignedInteger=false;const std::size_t start=++p_;while(p_<s_.size() && s_[p_]>='0' && s_[p_]<='9')++p_;require(p_>start,"Missing JSON fractional digits");
+        }
+        if(p_<s_.size() && (s_[p_]=='e' || s_[p_]=='E')){
+            out.unsignedInteger=false;++p_;if(p_<s_.size() && (s_[p_]=='+' || s_[p_]=='-'))++p_;
+            const std::size_t start=p_;while(p_<s_.size() && s_[p_]>='0' && s_[p_]<='9')++p_;require(p_>start,"Missing JSON exponent digits");
+        }
         return out;
     }
 public:

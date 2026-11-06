@@ -19,6 +19,55 @@ namespace {
 String^ Text(const std::wstring& value) { return ref new String(value.c_str()); }
 String^ Number(double value) { std::wostringstream text; text << value; return Text(text.str()); }
 bool Same(String^ a, String^ b) { return a != nullptr && b != nullptr && a->Equals(b); }
+bool IsAsciiAlphanumeric(wchar_t c) {
+    return (c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9');
+}
+std::wstring LowerAscii(String^ value) {
+    std::wstring result(value->Data());
+    for (size_t i = 0; i < result.size(); ++i) if (result[i] >= L'A' && result[i] <= L'Z') result[i] += L'a' - L'A';
+    return result;
+}
+bool IsBackupLeaf(String^ value) {
+    if (value == nullptr || value->Length() == 0 || value->Length() > 255) return false;
+    std::wstring leaf = LowerAscii(value);
+    if (!IsAsciiAlphanumeric(leaf[0]) || leaf[leaf.size() - 1] == L'.') return false;
+    for (size_t i = 0; i < leaf.size(); ++i)
+        if (!IsAsciiAlphanumeric(leaf[i]) && leaf[i] != L'.' && leaf[i] != L'_' && leaf[i] != L'-') return false;
+    std::wstring stem = leaf.substr(0, leaf.find(L'.'));
+    if (stem == L"con" || stem == L"prn" || stem == L"aux" || stem == L"nul") return false;
+    if (stem.size() == 4 && (stem.substr(0, 3) == L"com" || stem.substr(0, 3) == L"lpt") && stem[3] >= L'1' && stem[3] <= L'9') return false;
+    return true;
+}
+bool IsSha256(String^ value) {
+    if (value == nullptr || value->Length() != 64) return false;
+    for (unsigned i = 0; i < value->Length(); ++i) {
+        wchar_t c = value->Data()[i];
+        if (!((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'))) return false;
+    }
+    return true;
+}
+void ValidateEvidenceReferences(JsonObject^ manifest) {
+    if (!Same(manifest->GetNamedString(L"schema"), L"monitorfw.backup.v1") || !Same(manifest->GetNamedString(L"image_kind"), L"spi_full"))
+        throw ref new FailureException(L"The selected folder does not contain a full SPI backup manifest.");
+    JsonArray^ reads = manifest->GetNamedArray(L"reads");
+    JsonObject^ flash = manifest->GetNamedObject(L"flash");
+    if (reads->Size != 2 || !manifest->GetNamedBoolean(L"reads_equal")) throw ref new FailureException(L"Two matching backup reads are required.");
+    JsonObject^ first = reads->GetObjectAt(0);
+    JsonObject^ second = reads->GetObjectAt(1);
+    String^ firstName = first->GetNamedString(L"file");
+    String^ secondName = second->GetNamedString(L"file");
+    String^ sfdpName = flash->GetNamedString(L"sfdp_file");
+    if (!IsBackupLeaf(firstName) || !IsBackupLeaf(secondName) || !IsBackupLeaf(sfdpName))
+        throw ref new FailureException(L"Backup references must be safe file names without paths.");
+    if (LowerAscii(firstName) == LowerAscii(secondName) || LowerAscii(firstName) == LowerAscii(sfdpName) || LowerAscii(secondName) == LowerAscii(sfdpName))
+        throw ref new FailureException(L"Both read files and the SFDP file must have distinct names, ignoring case.");
+    if (first->GetNamedNumber(L"bytes") != 0x200000 || second->GetNamedNumber(L"bytes") != 0x200000 || flash->GetNamedNumber(L"sfdp_bytes") != 64)
+        throw ref new FailureException(L"Each SPI read must be 2 MiB and the SFDP capture must be 64 bytes.");
+    if (!IsSha256(first->GetNamedString(L"sha256")) || !Same(first->GetNamedString(L"sha256"), second->GetNamedString(L"sha256")) || !IsSha256(flash->GetNamedString(L"sfdp_sha256")))
+        throw ref new FailureException(L"Backup hashes must be lowercase SHA256 values and both read hashes must agree.");
+    // This checks references needed for copying. The broker independently validates
+    // the complete manifest, actual bytes, identity, flash profile and policy.
+}
 String^ LowerHex(IBuffer^ bytes) {
     std::wstring hex(CryptographicBuffer::EncodeToHexString(bytes)->Data());
     for (size_t i = 0; i < hex.size(); ++i) if (hex[i] >= L'A' && hex[i] <= L'F') hex[i] += L'a' - L'A';
@@ -49,11 +98,11 @@ String^ NewUuid() {
 void Put(JsonObject^ object, String^ key, String^ value) {
     object->Insert(key, JsonValue::CreateStringValue(value == nullptr ? L"" : value));
 }
-task<String^> ReadTextBounded(StorageFolder^ folder, String^ name) {
+task<String^> ReadTextBounded(StorageFolder^ folder, String^ name, unsigned maximum = 1024 * 1024) {
     return create_task(folder->GetFileAsync(name)).then([](StorageFile^ file) {
         return file->OpenReadAsync();
-    }).then([](IRandomAccessStreamWithContentType^ stream) -> task<String^> {
-        if (stream->Size > 1024 * 1024) { delete stream; throw ref new FailureException(L"Broker JSON exceeds 1 MiB."); }
+    }).then([maximum](IRandomAccessStreamWithContentType^ stream) -> task<String^> {
+        if (stream->Size == 0 || stream->Size > maximum) { delete stream; throw ref new FailureException(L"JSON file has an unsupported size."); }
         unsigned length = static_cast<unsigned>(stream->Size);
         DataReader^ reader = ref new DataReader(stream->GetInputStreamAt(0));
         reader->UnicodeEncoding = UnicodeEncoding::Utf8;
@@ -79,11 +128,12 @@ task<void> CopyInput(StorageFile^ file, StorageFolder^ folder, String^ name, uns
         if (properties->Size == 0 || properties->Size > maximum) throw ref new FailureException(L"Copied input has an unsupported size.");
     });
 }
-task<String^> HashInput(StorageFolder^ folder) {
-    return create_task(folder->GetFileAsync(L"input.bin")).then([](StorageFile^ file) {
+task<String^> HashCopiedFile(StorageFolder^ folder, String^ name, unsigned exactSize) {
+    return create_task(folder->GetFileAsync(name)).then([](StorageFile^ file) {
         return file->OpenReadAsync();
-    }).then([](IRandomAccessStreamWithContentType^ stream) -> task<String^> {
+    }).then([exactSize](IRandomAccessStreamWithContentType^ stream) -> task<String^> {
         if (stream->Size == 0 || stream->Size > 0x200000) { delete stream; throw ref new FailureException(L"Input exceeds the 2 MiB image limit."); }
+        if (exactSize != 0 && stream->Size != exactSize) { delete stream; throw ref new FailureException(L"Copied evidence has an unexpected length."); }
         unsigned length = static_cast<unsigned>(stream->Size);
         DataReader^ reader = ref new DataReader(stream->GetInputStreamAt(0));
         return create_task(reader->LoadAsync(length)).then([reader, stream, length](task<unsigned> loaded) {
@@ -95,6 +145,37 @@ task<String^> HashInput(StorageFolder^ folder) {
                 delete stream;
                 return hash;
             } catch (...) { delete reader; delete stream; throw; }
+        });
+    });
+}
+task<void> CopyEvidenceFile(StorageFolder^ source, StorageFolder^ destination, String^ name, unsigned exactSize, String^ expectedHash) {
+    return create_task(source->GetFileAsync(name)).then([destination, name, exactSize](StorageFile^ file) {
+        return CopyInput(file, destination, name, exactSize);
+    }).then([destination, name, exactSize] {
+        return HashCopiedFile(destination, name, exactSize);
+    }).then([expectedHash](String^ hash) {
+        if (!Same(hash, expectedHash)) throw ref new FailureException(L"Copied backup evidence does not match its manifest hash.");
+    });
+}
+task<String^> CopyEvidenceBundle(StorageFolder^ source, StorageFolder^ destination) {
+    if (source == nullptr) return create_task([]() -> String^ { return L""; });
+    return create_task(source->GetFileAsync(L"backup.json")).then([destination](StorageFile^ manifest) {
+        return CopyInput(manifest, destination, L"backup-evidence.json", 65536);
+    }).then([destination] {
+        return ReadTextBounded(destination, L"backup-evidence.json", 65536);
+    }).then([source, destination](String^ text) {
+        JsonObject^ manifest = JsonObject::Parse(text);
+        ValidateEvidenceReferences(manifest);
+        return create_task(destination->CreateFolderAsync(L"evidence", CreationCollisionOption::FailIfExists)).then([source, manifest](StorageFolder^ evidence) {
+            JsonArray^ reads = manifest->GetNamedArray(L"reads");
+            JsonObject^ first = reads->GetObjectAt(0);
+            JsonObject^ second = reads->GetObjectAt(1);
+            JsonObject^ flash = manifest->GetNamedObject(L"flash");
+            return CopyEvidenceFile(source, evidence, first->GetNamedString(L"file"), 0x200000, first->GetNamedString(L"sha256")).then([source, evidence, second] {
+                return CopyEvidenceFile(source, evidence, second->GetNamedString(L"file"), 0x200000, second->GetNamedString(L"sha256"));
+            }).then([source, evidence, flash] {
+                return CopyEvidenceFile(source, evidence, flash->GetNamedString(L"sfdp_file"), 64, flash->GetNamedString(L"sfdp_sha256"));
+            }).then([first]() -> String^ { return first->GetNamedString(L"sha256"); });
         });
     });
 }
@@ -158,11 +239,17 @@ MainPage::MainPage() : busy_(false), pending_(false), terminal_(false), initiali
 void MainPage::SetBusy(bool value) {
     busy_ = value;
     bool available = !busy_ && !pending_;
-    ModeBox->IsEnabled = ProviderBox->IsEnabled = ImageKindBox->IsEnabled = available;
-    FirmwareButton->IsEnabled = ManifestButton->IsEnabled = EnumerateButton->IsEnabled = available;
+    ModeBox->IsEnabled = available;
+    ProviderBox->IsEnabled = available;
+    ImageKindBox->IsEnabled = available;
+    FirmwareButton->IsEnabled = available;
+    ManifestButton->IsEnabled = available;
+    EnumerateButton->IsEnabled = available;
     EndpointBox->IsEnabled = available;
     bool selected = EndpointBox->SelectedItem != nullptr;
-    DownloadButton->IsEnabled = UploadButton->IsEnabled = VerifyButton->IsEnabled = available && selected;
+    DownloadButton->IsEnabled = available && selected;
+    UploadButton->IsEnabled = available && selected;
+    VerifyButton->IsEnabled = available && selected;
     ResultButton->IsEnabled = !busy_ && requestId_ != nullptr;
     ExportButton->IsEnabled = !busy_ && terminal_ && requestFolder_ != nullptr;
 }
@@ -203,11 +290,18 @@ void MainPage::FirmwareClick(Object^, RoutedEventArgs^) {
 void MainPage::ManifestClick(Object^, RoutedEventArgs^) {
     SetBusy(true);
     try {
-    FileOpenPicker^ picker = ref new FileOpenPicker();
-    picker->FileTypeFilter->Append(L".json");
+    FolderPicker^ picker = ref new FolderPicker();
+    picker->FileTypeFilter->Append(L"*");
     picker->SuggestedStartLocation = PickerLocationId::DocumentsLibrary;
-    create_task(picker->PickSingleFileAsync()).then([this](task<StorageFile^> picked) {
-        try { StorageFile^ file = picked.get(); if (file != nullptr) { evidence_ = file; ManifestName->Text = file->Name; } SetBusy(false); }
+    create_task(picker->PickSingleFolderAsync()).then([this](StorageFolder^ folder) -> task<void> {
+        if (folder == nullptr) return create_task([] {});
+        return ReadTextBounded(folder, L"backup.json", 65536).then([this, folder](String^ text) {
+            ValidateEvidenceReferences(JsonObject::Parse(text));
+            evidenceFolder_ = folder;
+            ManifestName->Text = folder->Name + L" / backup.json. All three evidence files will be copied and checked before dispatch.";
+        }, task_continuation_context::use_current());
+    }, task_continuation_context::use_current()).then([this](task<void> selected) {
+        try { selected.get(); SetBusy(false); }
         catch (Exception^ error) { ReportError(error); }
     }, task_continuation_context::use_current());
     } catch (Exception^ error) { ReportError(error); }
@@ -219,7 +313,7 @@ void MainPage::Submit(String^ action) {
         bool inputRequired = Same(action, L"upload") || Same(action, L"verify");
         String^ kind = inputRequired ? SelectedTag(ImageKindBox) : L"samsung_package";
         if (inputRequired && firmware_ == nullptr) throw ref new FailureException(L"Choose a firmware file first.");
-        if (inputRequired && Same(kind, L"spi_full") && evidence_ == nullptr) throw ref new FailureException(L"Choose the backup evidence for your own SPI dump.");
+        if (inputRequired && Same(kind, L"spi_full") && evidenceFolder_ == nullptr) throw ref new FailureException(L"Choose the bundle folder containing backup.json and all three evidence files.");
         JsonObject^ request = ref new JsonObject();
         String^ id = NewUuid();
         Put(request, L"schema", L"monitorfw.request.v1"); Put(request, L"request_id", id);
@@ -236,7 +330,7 @@ void MainPage::Submit(String^ action) {
             Put(request, L"expected_edid_sha256", endpoint->GetNamedString(L"edid_sha256"));
         }
         StorageFile^ input = inputRequired ? firmware_ : nullptr;
-        StorageFile^ evidence = inputRequired && Same(kind, L"spi_full") ? evidence_ : nullptr;
+        StorageFolder^ evidence = inputRequired && Same(kind, L"spi_full") ? evidenceFolder_ : nullptr;
         SetBusy(true); terminal_ = false; Progress->IsIndeterminate = false; Progress->Value = 0; ResultText->Text = L"";
         StatusText->Text = L"Preparing local request files...";
         create_task(ApplicationData::Current->LocalFolder->CreateFolderAsync(L"requests", CreationCollisionOption::OpenIfExists)).then([id](StorageFolder^ requests) {
@@ -244,10 +338,13 @@ void MainPage::Submit(String^ action) {
         }).then([this, request, input, evidence](StorageFolder^ folder) {
             requestFolder_ = folder;
             return CopyInput(input, folder, L"input.bin", 0x200000).then([folder, evidence] {
-                return CopyInput(evidence, folder, L"backup-evidence.json", 65536);
-            }).then([folder, input]() -> task<String^> {
+                return CopyEvidenceBundle(evidence, folder);
+            }).then([folder, input](String^ evidenceHash) -> task<String^> {
                 if (input == nullptr) return create_task([]() -> String^ { return L""; });
-                return HashInput(folder);
+                return HashCopiedFile(folder, L"input.bin", evidenceHash->Length() == 0 ? 0 : 0x200000).then([evidenceHash](String^ hash) {
+                    if (evidenceHash->Length() != 0 && !Same(hash, evidenceHash)) throw ref new FailureException(L"The selected SPI image differs from the two backup reads.");
+                    return hash;
+                });
             }).then([request, folder](String^ hash) {
                 Put(request, L"firmware_sha256", hash);
                 return PublishRequest(folder, request);

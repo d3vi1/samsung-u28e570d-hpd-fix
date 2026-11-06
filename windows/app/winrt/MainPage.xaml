@@ -28,8 +28,8 @@
       </ComboBox>
       <Button x:Name="FirmwareButton" Content="Browse firmware" Click="FirmwareClick" Margin="0,12,0,0" />
       <TextBlock x:Name="FirmwareName" Text="No firmware selected." TextWrapping="Wrap" Margin="0,4,0,8" />
-      <Button x:Name="ManifestButton" Content="Browse backup manifest" Click="ManifestClick" />
-      <TextBlock x:Name="ManifestName" Text="No backup evidence selected." TextWrapping="Wrap" Margin="0,4,0,12" />
+      <Button x:Name="ManifestButton" Content="Browse backup bundle folder" Click="ManifestClick" />
+      <TextBlock x:Name="ManifestName" Text="Select the folder containing backup.json, both SPI reads and the SFDP capture." TextWrapping="Wrap" Margin="0,4,0,12" />
       <TextBlock Text="Download reads the monitor into two backup files. Upload writes the selected firmware after the desktop plan confirmation. Verify compares the selected image with two complete reads." TextWrapping="Wrap" Margin="0,0,0,8" />
       <StackPanel Orientation="Vertical" HorizontalAlignment="Left">
         <Button x:Name="DownloadButton" Content="Download backup" Click="DownloadClick" Margin="0,0,8,8" />

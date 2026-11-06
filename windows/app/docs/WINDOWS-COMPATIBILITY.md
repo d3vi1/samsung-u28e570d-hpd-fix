@@ -10,7 +10,7 @@ The provider selector reads registry metadata only. NVIDIA is implemented; Intel
 | --- | --- | --- |
 | Windows XP SP3 x86 | Compatible x86 compiler/runtime; `SAMSUNG_TARGET_XP=ON`; XP API declarations and subsystem 5.1 | Target configuration only; not executed on XP |
 | Windows 7 | Native Win32 shell, compatible compiler/runtime and NVIDIA driver | Not executed on that system |
-| Windows 8 / 8.1 | Separate WinRT/XAML frontend and its broker; legacy Win32 build remains useful for development | This document does not claim that frontend has been built or validated |
+| Windows 8 / 8.1 | Separate WinRT/XAML frontend and its broker; legacy Win32 build remains useful for development | XAML x86 compiled and packaged unsigned on Windows 10 with Microsoft v110/SDK 8; deployment/runtime on Windows 8/8.1 untested |
 | Current Windows host | Portable x86 development build and offline mock tests | Recorded separately in build/test results |
 
 Defining `_WIN32_WINNT` and changing the PE subsystem version do not by themselves make a binary compatible with XP. Compiler runtimes, imported APIs, dynamically loaded dependencies and the driver must also support the target. The XP profile rejects a non-x86 configuration and an MSVC toolset without an `_xp` suffix. Newer Win32 APIs must not become unconditional imports in that profile.
@@ -45,7 +45,7 @@ The storage tests use only fresh TEMP directories and `mockScope=true`. They cov
 
 An initial x86 PE import inspection found subsystem 5.1 and classic Win32/MSVCRT dependencies in the legacy application and transport/storage test binaries. No static dependency on UCRT, `api-ms-win-*`, WinRT, `GetTickCount64`, SRW locks or condition variables was present. This check does not replace execution on an XP machine or validate runtime fallback paths and NVIDIA drivers.
 
-The recorded x86 run on Windows 10 build 19045 passed all seven CTest targets: 34 core cases, 33 transport cases, 15 broker protocol cases, 17 package conformance cases, 10 storage cases, six UI mock operations, and four broker mock operations with four rejected replays. The separate hardware-enabled legacy application and broker also compiled successfully; neither executable was launched. No hardware operation, protocol registration, UAC prompt or AppContainer deployment was part of these tests.
+The recorded x86 run on Windows 10 build 19045 passed all seven CTest targets: 47 core cases, 33 transport cases, 15 broker protocol cases, 17 package conformance cases, 20 storage cases, six UI mock operations, and 14 broker mock cases with 14 rejected replays. The separate hardware-enabled legacy application and broker also compiled successfully; neither executable was launched. The separate XAML frontend was built and packaged through the [relocated legacy toolchain](LEGACY-BUILD.md). No hardware operation, protocol registration, UAC prompt or AppContainer deployment was part of these tests.
 
 ## NVAPI and hardware support
 

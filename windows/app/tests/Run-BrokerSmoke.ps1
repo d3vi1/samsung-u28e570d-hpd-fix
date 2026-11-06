@@ -28,11 +28,14 @@ try {
     $outText = $stdout.GetAwaiter().GetResult(); $errText = $stderr.GetAwaiter().GetResult()
     if ($process.ExitCode -ne 0) { throw ('The mock broker failed with exit code ' + $process.ExitCode) }
     $result = Get-Content -LiteralPath (Join-Path $temporaryRoot 'self-test.json') -Raw | ConvertFrom-Json
-    if ($result.passed -ne 4 -or $result.replaysRejected -ne 4 -or $result.hardwareAccessed -ne $false) {
+    if ($result.passed -ne 14 -or $result.replaysRejected -ne 14 -or
+        $result.validOwnBundleOperations -ne 2 -or $result.invalidBundlesRejected -ne 8 -or
+        $result.hardwareAccessed -ne $false) {
         throw 'The broker self-test result did not match its mock-only contract.'
     }
     [ordered]@{
         test='broker_mock_smoke'; passed=$result.passed; replaysRejected=$result.replaysRejected
+        validOwnBundleOperations=$result.validOwnBundleOperations; invalidBundlesRejected=$result.invalidBundlesRejected
         hardwareAccessed=$false; registryAccessed=$false; uacRequested=$false
         brokerSha256=(Get-FileHash -LiteralPath $BrokerExe -Algorithm SHA256).Hash.ToLowerInvariant()
         stdoutChars=$outText.Length; stderrChars=$errText.Length
