@@ -1,0 +1,19 @@
+{
+  "schema": "monitorfw.profile.v1",
+  "identity": {
+    "model": "LU28E570DS/EN",
+    "manufacturer": "SAM",
+    "product_code": 0,
+    "edid_serial": "REPLACE_FROM_SAVED_EDID",
+    "edid_sha256": "REPLACE_WITH_SHA256_OF_COMPLETE_SAVED_EDID",
+    "transport_locator": "/dev/i2c-999",
+    "firmware": "REPLACE_WITH_EXPECTED_FIRMWARE_LABEL"
+  },
+  "flash": {
+    "profile": "EF4015-2MiB-legacy-SR0000-SFDP1.0",
+    "capacity": 2097152,
+    "jedec": "ef4015",
+    "status": "0000",
+    "sfdpPrefix": "53464450000100ff00000109800000ff"
+  }
+}
