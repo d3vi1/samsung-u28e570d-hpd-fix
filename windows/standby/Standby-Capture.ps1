@@ -6,6 +6,16 @@ param(
     [string]$Text
 )
 $ErrorActionPreference = 'Stop'
+function Read-CaptureJson([string]$Path) {
+    # The complete file is published by rename. ShareDelete also permits opening
+    # it while the publisher's short-lived rename handle is being released.
+    $file = [IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $reader = [IO.StreamReader]::new($file,[Text.Encoding]::UTF8,$true)
+        try { $json = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    } finally { $file.Dispose() }
+    $json | ConvertFrom-Json
+}
 $Directory = [IO.Path]::GetFullPath($Directory)
 $manifestPath = Join-Path $Directory 'session.json'
 if ($Action -eq 'Start') {
@@ -34,14 +44,14 @@ if ($Action -eq 'Start') {
         if ([DateTime]::UtcNow -ge $deadline) { throw ('Capture startup timed out; inspect or Stop it using: ' + $Directory) }
         Start-Sleep -Milliseconds 100
     }
-    Get-Content -LiteralPath (Join-Path $Directory 'ready.json') -Raw | ConvertFrom-Json
+    Read-CaptureJson (Join-Path $Directory 'ready.json')
     return
 }
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw 'No capture session manifest exists.' }
 $session = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($session.pipeName -notmatch '^WindowsStandby-[0-9a-f]{32}$') { throw 'Invalid session pipe name.' }
 if ($Action -eq 'Status' -and (Test-Path -LiteralPath (Join-Path $Directory 'stopped.json'))) {
-    Get-Content -LiteralPath (Join-Path $Directory 'stopped.json') -Raw | ConvertFrom-Json
+    Read-CaptureJson (Join-Path $Directory 'stopped.json')
     return
 }
 if ($Action -eq 'Mark' -and [string]::IsNullOrWhiteSpace($Text)) { throw 'Mark requires -Text.' }
@@ -54,7 +64,7 @@ if ($Action -eq 'Stop') {
         if ([DateTime]::UtcNow -ge $deadline) { throw 'Stop was requested, but clean shutdown is not yet confirmed.' }
         Start-Sleep -Milliseconds 100
     }
-    Get-Content -LiteralPath (Join-Path $Directory 'stopped.json') -Raw | ConvertFrom-Json
+    Read-CaptureJson (Join-Path $Directory 'stopped.json')
 } else {
     [pscustomobject]@{utc=[DateTimeOffset]::UtcNow.ToString('O');action=$Action;result='OK'}
 }

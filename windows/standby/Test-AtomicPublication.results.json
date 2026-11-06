@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "test": "Test-AtomicPublication",
+  "scope": "Filesystem-only publication checks; exact production reader in concurrent PowerShell runspaces.",
+  "totalCasesPassed": 16,
+  "totalConcurrentPublications": 48,
+  "runs": [
+    {
+      "test": "Test-AtomicPublication",
+      "parentPowerShellVersion": "5.1.19041.6456",
+      "listenerSourceSha256": "26709defcc44e8c8a4e665888b16908275160cb326e01ded78e6e3a6f2f90c92",
+      "hostSourceSha256": "073b0ee508cc5765e01c81e84fc8460c46fc496ca3e8e732db6573cf8cc95e01",
+      "readerSourceSha256": "7dbcd6284c493da4aba8adf65706f9ca166ae683844eac76798cd24ac165fe30",
+      "passed": 8,
+      "cases": [
+        {
+          "implementation": "listener",
+          "case": "complete-utf8-json-without-bom",
+          "passed": true
+        },
+        {
+          "implementation": "listener",
+          "case": "overwrite-rejected-original-preserved",
+          "passed": true
+        },
+        {
+          "implementation": "listener",
+          "case": "failed-rename-cleans-only-owned-temporary",
+          "passed": true
+        },
+        {
+          "implementation": "listener",
+          "case": "first-appearance-is-complete",
+          "publications": 12,
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "complete-utf8-json-without-bom",
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "overwrite-rejected-original-preserved",
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "failed-rename-cleans-only-owned-temporary",
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "first-appearance-is-complete",
+          "publications": 12,
+          "passed": true
+        }
+      ],
+      "concurrentPublications": 24,
+      "listenerStarted": false,
+      "hostExecuted": false,
+      "etwAccessed": false,
+      "displayAccessed": false,
+      "uacRequested": false,
+      "temporaryFixturesRemoved": true,
+      "firstAppearanceReader": "Exact production Read-CaptureJson function in a concurrent runspace"
+    },
+    {
+      "test": "Test-AtomicPublication",
+      "parentPowerShellVersion": "7.6.5",
+      "listenerSourceSha256": "26709defcc44e8c8a4e665888b16908275160cb326e01ded78e6e3a6f2f90c92",
+      "hostSourceSha256": "073b0ee508cc5765e01c81e84fc8460c46fc496ca3e8e732db6573cf8cc95e01",
+      "readerSourceSha256": "7dbcd6284c493da4aba8adf65706f9ca166ae683844eac76798cd24ac165fe30",
+      "passed": 8,
+      "cases": [
+        {
+          "implementation": "listener",
+          "case": "complete-utf8-json-without-bom",
+          "passed": true
+        },
+        {
+          "implementation": "listener",
+          "case": "overwrite-rejected-original-preserved",
+          "passed": true
+        },
+        {
+          "implementation": "listener",
+          "case": "failed-rename-cleans-only-owned-temporary",
+          "passed": true
+        },
+        {
+          "implementation": "listener",
+          "case": "first-appearance-is-complete",
+          "publications": 12,
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "complete-utf8-json-without-bom",
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "overwrite-rejected-original-preserved",
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "failed-rename-cleans-only-owned-temporary",
+          "passed": true
+        },
+        {
+          "implementation": "host",
+          "case": "first-appearance-is-complete",
+          "publications": 12,
+          "passed": true
+        }
+      ],
+      "concurrentPublications": 24,
+      "listenerStarted": false,
+      "hostExecuted": false,
+      "etwAccessed": false,
+      "displayAccessed": false,
+      "uacRequested": false,
+      "temporaryFixturesRemoved": true,
+      "firstAppearanceReader": "Exact production Read-CaptureJson function in a concurrent runspace"
+    }
+  ]
+}

@@ -32,32 +32,171 @@ $timer = [Diagnostics.Stopwatch]::new()
 
 function Save-HostJson([string]$Path, $Value) {
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($Value | ConvertTo-Json -Depth 16) + [Environment]::NewLine)
-    $file = [IO.FileStream]::new($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
-    try { $file.Write($bytes,0,$bytes.Length); $file.Flush($true) } finally { $file.Dispose() }
+    $destination = [IO.Path]::GetFullPath($Path)
+    $temporary = Join-Path ([IO.Path]::GetDirectoryName($destination)) ('.' + [IO.Path]::GetFileName($destination) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $temporaryCreated = $false
+    try {
+        $file = [IO.FileStream]::new($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        $temporaryCreated = $true
+        try { $file.Write($bytes,0,$bytes.Length); $file.Flush($true) } finally { $file.Dispose() }
+        # Same-directory rename publishes only a closed complete file; this overload never overwrites.
+        [IO.File]::Move($temporary,$destination)
+    } finally {
+        if ($temporaryCreated -and [IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
+
+function Initialize-OwnedControllerJobType {
+    if ('SamsungStandbyHostJob.OwnedJob' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
+using Microsoft.Win32.SafeHandles;
+
+namespace SamsungStandbyHostJob {
+    // Anonymous, non-inheritable job. Only KILL_ON_JOB_CLOSE is enabled: no breakaway flags.
+    public sealed class OwnedJob : IDisposable {
+        sealed class JobHandle : SafeHandleZeroOrMinusOneIsInvalid {
+            internal JobHandle(IntPtr value) : base(true) { SetHandle(value); }
+            protected override bool ReleaseHandle() { return CloseHandle(handle); }
+        }
+        [StructLayout(LayoutKind.Sequential)] struct BasicLimits {
+            public long ProcessTime, JobTime;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSet, MaximumWorkingSet;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass, SchedulingClass;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct IoCounters {
+            public ulong ReadOperations, WriteOperations, OtherOperations, ReadBytes, WriteBytes, OtherBytes;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct ExtendedLimits {
+            public BasicLimits Basic;
+            public IoCounters Io;
+            public UIntPtr ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct Accounting {
+            public long TotalUserTime, TotalKernelTime, PeriodUserTime, PeriodKernelTime;
+            public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses;
+        }
+        readonly JobHandle handle;
+        public OwnedJob() {
+            if (IntPtr.Size != 8 || Marshal.SizeOf(typeof(BasicLimits)) != 64 ||
+                Marshal.SizeOf(typeof(ExtendedLimits)) != 144 || Marshal.SizeOf(typeof(Accounting)) != 48 ||
+                Marshal.OffsetOf(typeof(Accounting), "ActiveProcesses").ToInt32() != 40)
+                throw new InvalidOperationException("Unexpected x64 Job Object layout.");
+            IntPtr value = CreateJobObject(IntPtr.Zero, null);
+            if (value == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed.");
+            handle = new JobHandle(value);
+            try {
+                ExtendedLimits limits = new ExtendedLimits();
+                limits.Basic.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                if (!SetInformationJobObject(handle, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits))))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed.");
+            } catch { handle.Dispose(); throw; }
+        }
+        public void Assign(IntPtr processHandle) {
+            if (!AssignProcessToJobObject(handle, processHandle))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed; wrapper gate remains closed.");
+        }
+        public uint ActiveProcessCount {
+            get {
+                Accounting accounting;
+                uint returned;
+                if (!QueryInformationJobObject(handle, 1, out accounting, (uint)Marshal.SizeOf(typeof(Accounting)), out returned))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryInformationJobObject failed.");
+                if (returned != Marshal.SizeOf(typeof(Accounting)))
+                    throw new InvalidOperationException("Incomplete Job Object accounting result.");
+                return accounting.ActiveProcesses;
+            }
+        }
+        public void Terminate(uint exitCode) {
+            if (!TerminateJobObject(handle, exitCode))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "TerminateJobObject failed.");
+        }
+        public bool WaitForEmpty(int milliseconds) {
+            Stopwatch timer = Stopwatch.StartNew();
+            do {
+                if (ActiveProcessCount == 0) return true;
+                if (timer.ElapsedMilliseconds >= milliseconds) return false;
+                Thread.Sleep(20);
+            } while (true);
+        }
+        public void Dispose() { handle.Dispose(); }
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+        [DllImport("kernel32.dll", SetLastError=true)]
+        static extern bool SetInformationJobObject(JobHandle job, int informationClass, ref ExtendedLimits information, uint length);
+        [DllImport("kernel32.dll", SetLastError=true)]
+        static extern bool QueryInformationJobObject(JobHandle job, int informationClass, out Accounting information, uint length, out uint returnedLength);
+        [DllImport("kernel32.dll", SetLastError=true)]
+        static extern bool AssignProcessToJobObject(JobHandle job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError=true)]
+        static extern bool TerminateJobObject(JobHandle job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError=true)]
+        static extern bool CloseHandle(IntPtr handle);
+    }
+}
+'@
 }
 
 function Invoke-OwnedController([ValidateSet('Start','Stop','Export')][string]$Phase, [int]$TimeoutSeconds) {
     $entry = [ordered]@{ action=$Phase; requestedUtc=[DateTime]::UtcNow.ToString('o'); pid=$null; exitCode=$null
         timedOut=$false; resultPath=$null; result=$null; verified=$false; error=$null
-        stdoutComplete=$false; stderrComplete=$false; streamCaptureError=$null }
+        stdoutComplete=$false; stderrComplete=$false; streamCaptureError=$null
+        jobAssigned=$false; gateReleased=$false; treeTerminationAttempted=$false
+        childTerminationConfirmed=$false; treeTerminationConfirmed=$false; remainingJobProcesses=$null
+        unexpectedDescendants=$false; jobCleanupError=$null; jobClosed=$false }
     $report.actions += $entry
     $stdout = Join-Path $OutputDirectory ('dxgkrnl-host-child-' + $Phase.ToLowerInvariant() + '.stdout.txt')
     $stderr = Join-Path $OutputDirectory ('dxgkrnl-host-child-' + $Phase.ToLowerInvariant() + '.stderr.txt')
     foreach ($path in @($stdout,$stderr)) { if (Test-Path -LiteralPath $path) { throw "Child output already exists: $path" } }
-    $argsForChild = @('-NoProfile','-File',('"{0}"' -f $wrapper),'-Action',$Phase,
-        '-OutputDirectory',('"{0}"' -f $OutputDirectory),'-TestId',$TestId,
-        '-MaximumMegabytes',$MaximumMegabytes.ToString())
     $process = $null
+    $job = $null; $gate = $null
     $stdoutFile = $null; $stderrFile = $null
     $stdoutTask = $null; $stderrTask = $null
     try {
+        Initialize-OwnedControllerJobType
+        $job = [SamsungStandbyHostJob.OwnedJob]::new()
+        $gateName = 'Local\SamsungStandbyGate-' + [Guid]::NewGuid().ToString('N')
+        $createdNew = $false
+        $gate = [Threading.EventWaitHandle]::new($false,[Threading.EventResetMode]::ManualReset,$gateName,[ref]$createdNew)
+        if (-not $createdNew) { throw 'Controller gate already exists; refusing to launch.' }
+        # The initial process executes only this bounded gate wait. Wrapper code cannot
+        # run or spawn tracerpt until Assign succeeds and the parent signals the gate.
+        # Literal PowerShell strings preserve spaces, apostrophes and trailing backslashes.
+        $wrapperLiteral = "'" + $wrapper.Replace("'","''") + "'"
+        $directoryLiteral = "'" + $OutputDirectory.Replace("'","''") + "'"
+        $testIdLiteral = "'" + $TestId.Replace("'","''") + "'"
+        $phaseLiteral = "'" + $Phase.Replace("'","''") + "'"
+        $bootstrap = @(
+            '$ErrorActionPreference = ''Stop'''
+            '$gate = $null'
+            'try {'
+            ('$gate = [Threading.EventWaitHandle]::OpenExisting(''' + $gateName + ''')')
+            'if (-not $gate.WaitOne(30000)) { exit 125 }'
+            '$gate.Dispose(); $gate = $null'
+            '$global:LASTEXITCODE = 0'
+            ('& ' + $wrapperLiteral + ' -Action ' + $phaseLiteral + ' -OutputDirectory ' + $directoryLiteral +
+                ' -TestId ' + $testIdLiteral + ' -MaximumMegabytes ' + $MaximumMegabytes.ToString([Globalization.CultureInfo]::InvariantCulture))
+            '$controllerSucceeded = $?'
+            'if (-not $controllerSucceeded -and $LASTEXITCODE -eq 0) { exit 1 }'
+            'exit $LASTEXITCODE'
+            '} catch { [Console]::Error.WriteLine($_.Exception.ToString()); exit 126 }'
+            'finally { if ($null -ne $gate) { $gate.Dispose() } }'
+        ) -join [Environment]::NewLine
+        $encodedBootstrap = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
         # Already elevated host: no RunAs here and therefore no additional UAC dialog.
         # Own the Process handle directly: Start-Process -PassThru can lose ExitCode in Windows PowerShell 5.1.
         $stdoutFile = [IO.FileStream]::new($stdout,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
         $stderrFile = [IO.FileStream]::new($stderr,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
         $startInfo = [Diagnostics.ProcessStartInfo]::new()
         $startInfo.FileName = $childPowerShell
-        $startInfo.Arguments = $argsForChild -join ' '
+        $startInfo.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + $encodedBootstrap
         $startInfo.UseShellExecute = $false
         $startInfo.CreateNoWindow = $true
         $startInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
@@ -70,17 +209,23 @@ function Invoke-OwnedController([ValidateSet('Start','Stop','Export')][string]$P
         # Drain both streams concurrently before waiting, so a full stderr/stdout pipe cannot deadlock the child.
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
+        $job.Assign($process.Handle)
+        $entry.jobAssigned = $true
+        if (-not $gate.Set()) { throw 'Could not release the assigned controller gate.' }
+        $entry.gateReleased = $true
         $childTimer = [Diagnostics.Stopwatch]::StartNew()
         while (-not $process.WaitForExit(500)) {
             if ($childTimer.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
                 $entry.timedOut = $true
-                $entry.childTerminationConfirmed = $false
-                try { $process.Kill(); $entry.childTerminationConfirmed = $process.WaitForExit(5000) }
-                catch { $entry.childTerminationError = $_.Exception.Message }
                 throw "$Phase controller exceeded $TimeoutSeconds seconds; its session state must be checked."
             }
         }
         $entry.exitCode = [int]$process.ExitCode
+        $entry.childTerminationConfirmed = $true
+        if (-not $job.WaitForEmpty(250)) {
+            $entry.unexpectedDescendants = $true
+            throw "$Phase controller exited while descendants were still running; the action is not complete."
+        }
         $pattern = 'dxgkrnl-' + $Phase.ToLowerInvariant() + '-*-' + $process.Id + '.json'
         $files = @(Get-ChildItem -LiteralPath $OutputDirectory -Filter $pattern -File)
         if ($files.Count -ne 1) { throw "$Phase controller did not produce exactly one PID-bound result JSON." }
@@ -97,6 +242,45 @@ function Invoke-OwnedController([ValidateSet('Start','Stop','Export')][string]$P
         $entry.error = $_.Exception.ToString()
         throw
     } finally {
+        # Job lifetime covers the whole action, including stream/error paths. Killing
+        # only the PowerShell controller would leave native children such as tracerpt.
+        $cleanupFailed = $false
+        try {
+            # Do not let an accounting-query failure bypass the direct cleanup of
+            # a bootstrap that could not be assigned. Its gate is still closed.
+            if ($null -ne $entry.pid -and -not $entry.jobAssigned) {
+                try { if (-not $process.HasExited) { $process.Kill() } }
+                finally { $entry.childTerminationConfirmed = $process.WaitForExit(5000) }
+            }
+            if ($null -ne $job) {
+                if ($job.ActiveProcessCount -ne 0) {
+                    $entry.treeTerminationAttempted = $true
+                    $job.Terminate(124)
+                }
+                $jobEmpty = $job.WaitForEmpty(5000)
+                $entry.remainingJobProcesses = $job.ActiveProcessCount
+                if ($null -ne $entry.pid -and $entry.jobAssigned) {
+                    $entry.childTerminationConfirmed = $process.WaitForExit(5000)
+                }
+                $entry.treeTerminationConfirmed = $jobEmpty -and $entry.remainingJobProcesses -eq 0 -and
+                    ($null -eq $entry.pid -or $entry.childTerminationConfirmed)
+                if (-not $entry.treeTerminationConfirmed) { throw 'Controller/job termination could not be confirmed.' }
+            }
+        } catch {
+            $cleanupFailed = $true; $entry.verified = $false
+            $entry.jobCleanupError = $_.Exception.ToString()
+            $report.errors += 'Controller job cleanup failed: ' + $_.Exception.Message
+        } finally {
+            if ($null -ne $entry.pid -and $entry.childTerminationConfirmed) {
+                try { $entry.exitCode = [int]$process.ExitCode }
+                catch { $cleanupFailed = $true; $entry.verified = $false; $report.errors += 'Terminated child exit-code read failed: ' + $_.Exception.Message }
+            }
+            if ($null -ne $job) {
+                try { $job.Dispose(); $entry.jobClosed = $true }
+                catch { $cleanupFailed = $true; $entry.verified = $false; $report.errors += 'Job close failed: ' + $_.Exception.Message }
+            }
+            if ($null -ne $gate) { $gate.Dispose() }
+        }
         try {
             if ($null -ne $stdoutTask -and $null -ne $stderrTask) {
                 $streamsDone = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),5000)
@@ -111,12 +295,16 @@ function Invoke-OwnedController([ValidateSet('Start','Stop','Export')][string]$P
             $entry.streamCaptureError = $_.Exception.ToString()
             $report.errors += 'Child stream capture failed: ' + $_.Exception.Message
         }
-        if ($null -ne $stdoutFile) { $stdoutFile.Dispose() }
-        if ($null -ne $stderrFile) { $stderrFile.Dispose() }
+        foreach ($stream in @($stdoutFile,$stderrFile)) {
+            if ($null -ne $stream) {
+                try { $stream.Dispose() } catch { $report.errors += 'Child output close failed: ' + $_.Exception.Message }
+            }
+        }
         $entry.completedUtc = [DateTime]::UtcNow.ToString('o')
         try { Save-HostJson (Join-Path $OutputDirectory ('dxgkrnl-host-action-' + $Phase.ToLowerInvariant() + '.json')) $entry }
         catch { $report.errors += 'Action report persistence failed: ' + $_.Exception.Message }
         if ($null -ne $process) { $process.Dispose() }
+        if ($cleanupFailed) { throw 'Controller process-tree cleanup was not verified; inspect the action result.' }
     }
 }
 

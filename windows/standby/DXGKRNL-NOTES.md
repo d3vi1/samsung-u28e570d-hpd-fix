@@ -29,7 +29,11 @@ The wrapper requires an elevated administrator for Start, Status, Stop and Expor
 
 Launch `Run-DxgKrnlHost.ps1` once with elevation. Its hidden Start/Stop/Export children inherit that elevation, so they do not prompt for UAC again. The host checks each child's exit code and PID-bound result JSON, then waits for a local stop-request file or a monotonic deadline of at most 20 minutes. The deadline requests cleanup; Stop and offline Export have their own bounded execution times. No power setting is changed.
 
-The host owns each child directly through `System.Diagnostics.Process`, with `UseShellExecute=false`, `CreateNoWindow=true` and concurrent stdout/stderr reads. It does not use `Start-Process -PassThru` for those children. This fixes an observed Windows PowerShell 5.1 path where a completed child's `ExitCode` was null and its successful result was rejected. The outer `Start-Process -Verb RunAs` below is used only to request elevation for the host. The process-handling regression is covered by four dummy-controller tests; that does not establish an end-to-end standby result.
+The host owns each child directly through `System.Diagnostics.Process`, with `UseShellExecute=false`, `CreateNoWindow=true` and concurrent stdout/stderr reads. It does not use `Start-Process -PassThru` for those children. This fixes an observed Windows PowerShell 5.1 path where a completed child's `ExitCode` was null and its successful result was rejected. The outer `Start-Process -Verb RunAs` below is used only to request elevation for the host.
+
+Each controller waits at a gate until the host assigns it to an anonymous, non-inheritable Windows Job Object. The job allows no breakaway and uses kill-on-close; ordinary child processes such as `tracerpt.exe` stay in the same job. On timeout the host terminates the job and checks both controller exit and zero active job processes. A controller that exits while descendants remain is rejected, even if its JSON declares success. This owns the process tree, not the persistent kernel ETW session: stopping the session still requires the separate manifest-checked Stop action. The encoded bootstrap preserves paths containing spaces, apostrophes and trailing backslashes.
+
+Host JSON records are written to a unique temporary file in the destination directory, flushed and closed, then renamed without overwriting an existing record. Readers cannot observe the final name during the write. Dummy-process and temporary-file regressions cover these behaviors without starting ETW or requesting elevation; they do not establish an end-to-end standby result.
 
 ```powershell
 $workspace = (Get-Location).Path # Repository root.
@@ -37,8 +41,11 @@ $hostScript = Join-Path $workspace 'windows\standby\Run-DxgKrnlHost.ps1'
 $runDir = Join-Path $workspace 'windows\standby\runs\standby-test01'
 $testId = 'standby-test01'
 $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-$hostArgs = @('-NoProfile','-File',('"{0}"' -f $hostScript),
-    '-OutputDirectory',('"{0}"' -f $runDir),'-TestId',$testId,'-MaximumMinutes','20')
+function ConvertTo-PowerShellLiteral([string]$Value) { "'" + $Value.Replace("'", "''") + "'" }
+$hostCommand = '& {0} -OutputDirectory {1} -TestId {2} -MaximumMinutes 20' -f
+    (ConvertTo-PowerShellLiteral $hostScript), (ConvertTo-PowerShellLiteral $runDir), (ConvertTo-PowerShellLiteral $testId)
+$hostArgs = @('-NoProfile','-NonInteractive','-EncodedCommand',
+    [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($hostCommand)))
 $hostProcess = Start-Process -FilePath $powerShell -ArgumentList $hostArgs -Verb RunAs -WindowStyle Hidden -PassThru
 # The user approves the ordinary UAC dialog once.
 # Require dxgkrnl-host-ready.json with startVerified=true before display-off.
@@ -66,10 +73,13 @@ $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 # Pure compilation and layout validation; no ETW calls.
 & $powerShell -NoProfile -File $script -Action Validate -OutputDirectory $runDir -TestId $testId
 
+function ConvertTo-PowerShellLiteral([string]$Value) { "'" + $Value.Replace("'", "''") + "'" }
 function Invoke-TestEtw([ValidateSet('Start','Status','Stop','Export')][string]$Phase) {
-    $argsForChild = @('-NoProfile', '-File', ('"{0}"' -f $script),
-        '-Action', $Phase, '-OutputDirectory', ('"{0}"' -f $runDir),
-        '-TestId', $testId)
+    $command = '& {0} -Action {1} -OutputDirectory {2} -TestId {3}' -f
+        (ConvertTo-PowerShellLiteral $script), (ConvertTo-PowerShellLiteral $Phase),
+        (ConvertTo-PowerShellLiteral $runDir), (ConvertTo-PowerShellLiteral $testId)
+    $argsForChild = @('-NoProfile','-NonInteractive','-EncodedCommand',
+        [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command)))
     Start-Process -FilePath $powerShell -ArgumentList $argsForChild -Verb RunAs -WindowStyle Hidden -PassThru
 }
 
@@ -127,6 +137,9 @@ The raw ETL/XML can contain process identifiers and driver/device paths. Keep th
 - [RegisterDeviceNotification: notification scope and nonblocking handlers](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerdevicenotificationw)
 - [tracerpt: offline XML and summary export](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/tracerpt)
 - [Get-WinEvent: reading ETL with -Oldest](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.diagnostics/get-winevent)
+- [Job Objects: child inheritance, breakaway and kill-on-close](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+- [TerminateJobObject: terminating the assigned process tree](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-terminatejobobject)
+- [Job accounting: active-process count](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information)
 - [logman trace options](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/logman-create-trace), [wevtutil provider metadata and log export](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/wevtutil), [WPR profile/start/stop options](https://learn.microsoft.com/en-us/windows-hardware/test/wpt/wpr-command-line-options)
 
-Offline checks in PowerShell 7 and Windows PowerShell 5.1 confirmed x64 `WNODE_HEADER=48`, `EVENT_TRACE_PROPERTIES=120`, and `LoggerThreadId` offset 104. Separate preparation activity exercised a short ETW start/stop with displays active. The four-case portable host-process test uses dummy children and makes no ETW, UAC or monitor calls. See [Preparation results](PREPARATION-RESULT.md) for what these checks establish and what remains untested.
+Offline checks in PowerShell 7 and Windows PowerShell 5.1 confirmed x64 `WNODE_HEADER=48`, `EVENT_TRACE_PROPERTIES=120`, and `LoggerThreadId` offset 104. Separate preparation activity exercised a short ETW start/stop with displays active. The portable host-process and atomic-publication tests use dummy processes and temporary files, making no ETW, UAC or monitor calls. See [Preparation results](PREPARATION-RESULT.md) for what these checks establish and what remains untested.

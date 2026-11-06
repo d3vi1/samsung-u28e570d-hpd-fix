@@ -1,14 +1,26 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "test": "Test-DxgKrnlHostProcess",
-  "scope": "Extracted host process functions with an inline dummy controller only.",
-  "totalCasesPassed": 8,
+  "scope": "Extracted host process functions with inline dummy controllers and descendants only.",
+  "totalCasesPassed": 16,
+  "legacyArgumentReproduction": {
+    "runtime": "5.1.19041.6456",
+    "construction": "Legacy quoted ProcessStartInfo.Arguments with spaces, apostrophe and a trailing directory separator.",
+    "exitCode": 0,
+    "directoryExact": false,
+    "testIdExact": false,
+    "testIdEmpty": true,
+    "directoryContainsNextArgument": true,
+    "stderrCharacters": 0,
+    "temporaryFixturesRemoved": true,
+    "realHostExecuted": false
+  },
   "runs": [
     {
       "test": "Test-DxgKrnlHostProcess",
       "parentPowerShellVersion": "5.1.19041.6456",
-      "hostScriptSha256": "c7576493df336226711ff276a625fc83a7d684ccc7332ed9912d37e79be7dc9f",
-      "passed": 4,
+      "hostScriptSha256": "073b0ee508cc5765e01c81e84fc8460c46fc496ca3e8e732db6573cf8cc95e01",
+      "passed": 8,
       "cases": [
         {
           "case": "exit0",
@@ -16,7 +28,9 @@
           "accepted": true,
           "stdoutChars": 42,
           "stderrChars": 42,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
           "passed": true
         },
         {
@@ -25,7 +39,9 @@
           "accepted": false,
           "stdoutChars": 42,
           "stderrChars": 42,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
           "passed": true
         },
         {
@@ -34,7 +50,9 @@
           "accepted": true,
           "stdoutChars": 131114,
           "stderrChars": 131114,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
           "passed": true
         },
         {
@@ -43,7 +61,61 @@
           "accepted": false,
           "stdoutChars": 131114,
           "stderrChars": 131114,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
+          "passed": true
+        },
+        {
+          "case": "arguments-spaces-trailing-separator",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "argumentsExact": true,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
+          "passed": true
+        },
+        {
+          "case": "arguments-apostrophe-trailing-separator",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "argumentsExact": true,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
+          "passed": true
+        },
+        {
+          "case": "timeout-tree",
+          "exitCode": 124,
+          "accepted": false,
+          "timedOut": true,
+          "controllerExited": true,
+          "descendantExited": true,
+          "descendantExitCode": 124,
+          "identitiesRetainedBeforeExit": true,
+          "writesStableAfterCleanup": true,
+          "descendantHeldOutputStreams": true,
+          "remainingJobProcesses": 0,
+          "argumentsExact": true,
+          "passed": true
+        },
+        {
+          "case": "exit0-tree",
+          "exitCode": 0,
+          "accepted": false,
+          "timedOut": false,
+          "controllerExited": true,
+          "descendantExited": true,
+          "descendantExitCode": 124,
+          "identitiesRetainedBeforeExit": true,
+          "writesStableAfterCleanup": true,
+          "descendantHeldOutputStreams": true,
+          "remainingJobProcesses": 0,
+          "argumentsExact": true,
           "passed": true
         }
       ],
@@ -56,8 +128,8 @@
     {
       "test": "Test-DxgKrnlHostProcess",
       "parentPowerShellVersion": "7.6.5",
-      "hostScriptSha256": "c7576493df336226711ff276a625fc83a7d684ccc7332ed9912d37e79be7dc9f",
-      "passed": 4,
+      "hostScriptSha256": "073b0ee508cc5765e01c81e84fc8460c46fc496ca3e8e732db6573cf8cc95e01",
+      "passed": 8,
       "cases": [
         {
           "case": "exit0",
@@ -65,7 +137,9 @@
           "accepted": true,
           "stdoutChars": 42,
           "stderrChars": 42,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
           "passed": true
         },
         {
@@ -74,7 +148,9 @@
           "accepted": false,
           "stdoutChars": 42,
           "stderrChars": 42,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
           "passed": true
         },
         {
@@ -83,7 +159,9 @@
           "accepted": true,
           "stdoutChars": 131114,
           "stderrChars": 131114,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
           "passed": true
         },
         {
@@ -92,7 +170,61 @@
           "accepted": false,
           "stdoutChars": 131114,
           "stderrChars": 131114,
+          "argumentsExact": true,
           "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
+          "passed": true
+        },
+        {
+          "case": "arguments-spaces-trailing-separator",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "argumentsExact": true,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
+          "passed": true
+        },
+        {
+          "case": "arguments-apostrophe-trailing-separator",
+          "exitCode": 0,
+          "accepted": true,
+          "stdoutChars": 42,
+          "stderrChars": 42,
+          "argumentsExact": true,
+          "childPowerShellVersion": "5.1.19041.6456",
+          "remainingJobProcesses": 0,
+          "passed": true
+        },
+        {
+          "case": "timeout-tree",
+          "exitCode": 124,
+          "accepted": false,
+          "timedOut": true,
+          "controllerExited": true,
+          "descendantExited": true,
+          "descendantExitCode": 124,
+          "identitiesRetainedBeforeExit": true,
+          "writesStableAfterCleanup": true,
+          "descendantHeldOutputStreams": true,
+          "remainingJobProcesses": 0,
+          "argumentsExact": true,
+          "passed": true
+        },
+        {
+          "case": "exit0-tree",
+          "exitCode": 0,
+          "accepted": false,
+          "timedOut": false,
+          "controllerExited": true,
+          "descendantExited": true,
+          "descendantExitCode": 124,
+          "identitiesRetainedBeforeExit": true,
+          "writesStableAfterCleanup": true,
+          "descendantHeldOutputStreams": true,
+          "remainingJobProcesses": 0,
+          "argumentsExact": true,
           "passed": true
         }
       ],

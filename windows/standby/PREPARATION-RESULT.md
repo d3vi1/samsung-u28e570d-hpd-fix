@@ -15,7 +15,7 @@ The capture tools reached a preparation milestone, not an HDMI standby result. T
 
 The passive-listener suite passed 21 checks in PowerShell 7 and Windows PowerShell 5.1. The topology suite passed 20 checks in both shells. These cover synthetic decoding, ABI layouts and script compilation; they do not execute a standby interval. ETW layout checks also confirmed the reviewed x64 structures.
 
-`Test-DxgKrnlHostProcess.ps1` tests the production host's process-handling functions against inline dummy controllers. It does not start the host's capture workflow, request elevation or call ETW/display APIs. The four cases are:
+`Test-DxgKrnlHostProcess.ps1` tests the production host's process-handling functions against inline dummy controllers. It does not start the host's capture workflow, request elevation or call ETW/display APIs. Its original exit-code and stream checks remain covered:
 
 | Dummy child | Expected result |
 |---|---|
@@ -25,6 +25,18 @@ The passive-listener suite passed 21 checks in PowerShell 7 and Windows PowerShe
 | Exit 7 with the same large stdout/stderr payloads | Rejected; stdout and stderr still captured completely |
 
 The sanitized machine-readable result accompanies the portable test. Temporary paths, process IDs, device identifiers and raw run artifacts are not part of this report.
+
+## Review corrections tested without capture
+
+Review found three additional problems in the published tooling: timeout cleanup killed only the controller, a trailing backslash could corrupt command-line arguments, and a reader could see a ready/stopped file before its writer had closed it.
+
+- The host now assigns each controller to a Job Object before releasing the controller's startup gate. Timeout cleanup terminates the assigned process tree and verifies controller exit and zero active job processes. A successful controller exit with a surviving descendant is also rejected and cleaned up.
+- The controller bootstrap uses `-EncodedCommand` and escaped PowerShell string literals. This preserves paths containing spaces, apostrophes and trailing separators. A dummy reproduction of the old argument construction silently absorbed the following `-TestId` into the directory argument despite exit code zero.
+- Listener ready/stopped records and host JSON records now use a unique temporary file in the destination directory, a durable flush, close, and a rename that refuses to overwrite an existing record. The production ready/stopped reader also permits delete sharing, avoiding a sharing violation while the publisher releases its brief rename handle.
+
+The extended process test passed all eight cases in each shell: the four original cases, two exact-argument cases, a timed-out controller with a live descendant, and an exit-zero controller with a live descendant. Both tree cases retained independent process handles before cleanup, confirmed termination, and checked that the descendant stopped writing. The descendant held inherited stdout/stderr streams open, so successful completion also checked stream closure after tree cleanup.
+
+`Test-AtomicPublication.ps1` passed eight cases in each shell without starting the listener. It checks complete UTF-8 JSON, overwrite rejection, failed-rename cleanup that preserves another writer's temporary file, and the exact production reader invoked concurrently at first appearance. It exercised 12 publications of 1 MiB per writer per shell, 48 total. These corrections were validated with temporary files and dummy processes under Windows PowerShell 5.1 and PowerShell 7; there was no new UAC request, ETW session, display operation or standby capture. The [process results](Test-DxgKrnlHostProcess.results.json) and [publication results](Test-AtomicPublication.results.json) record the exact source hashes tested.
 
 ## What remains untested
 

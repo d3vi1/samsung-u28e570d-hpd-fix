@@ -115,6 +115,35 @@ namespace WindowsStandby
         }
     }
 
+    public static class AtomicPublication
+    {
+        // Publish a closed, complete UTF-8 file without replacing an existing destination.
+        // This helper only uses the filesystem; it does not start a capture host.
+        public static void WriteJsonNew(string path, string json)
+        {
+            if (json == null) throw new ArgumentNullException("json");
+            string destination = Path.GetFullPath(path);
+            string temporary = Path.Combine(Path.GetDirectoryName(destination),
+                "." + Path.GetFileName(destination) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+            byte[] bytes = new UTF8Encoding(false).GetBytes(json);
+            bool temporaryCreated = false;
+            try
+            {
+                using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    temporaryCreated = true;
+                    file.Write(bytes, 0, bytes.Length);
+                    file.Flush(true);
+                }
+                File.Move(temporary, destination);
+            }
+            finally
+            {
+                if (temporaryCreated && File.Exists(temporary)) File.Delete(temporary);
+            }
+        }
+    }
+
     public static class CaptureControl
     {
         public static string Send(string pipeName, string command, string text)
@@ -218,8 +247,8 @@ namespace WindowsStandby
                     var control = new Thread(() => ControlLoop(pipeName)) { IsBackground = true, Name = "Standby capture control" };
                     control.Start();
                     Write("capture_ready", null);
-                    File.WriteAllText(Path.Combine(directory, "ready.json"), EventDecoder.Json(new Dictionary<string, object> {
-                        { "pid", Process.GetCurrentProcess().Id }, { "utc", DateTimeOffset.UtcNow.ToString("O") }, { "pipeName", pipeName } }), new UTF8Encoding(false));
+                    AtomicPublication.WriteJsonNew(Path.Combine(directory, "ready.json"), EventDecoder.Json(new Dictionary<string, object> {
+                        { "pid", Process.GetCurrentProcess().Id }, { "utc", DateTimeOffset.UtcNow.ToString("O") }, { "pipeName", pipeName } }));
                     Message message;
                     int status;
                     while ((status = GetMessage(out message, IntPtr.Zero, 0, 0)) > 0)
@@ -240,9 +269,9 @@ namespace WindowsStandby
                     if (atom != 0) UnregisterClass(className, instance);
                     recordQueue.CompleteAdding();
                     if (!logThread.Join(5000)) logFailed = true;
-                    try { File.WriteAllText(Path.Combine(directory, "stopped.json"), EventDecoder.Json(new Dictionary<string, object> {
+                    try { AtomicPublication.WriteJsonNew(Path.Combine(directory, "stopped.json"), EventDecoder.Json(new Dictionary<string, object> {
                         { "utc", DateTimeOffset.UtcNow.ToString("O") }, { "logErrorObserved", logFailed },
-                        { "droppedRecords", Interlocked.Read(ref droppedRecords) } }), new UTF8Encoding(false)); } catch { }
+                        { "droppedRecords", Interlocked.Read(ref droppedRecords) } })); } catch { }
                 }
             }
         }
